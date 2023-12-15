@@ -46,7 +46,7 @@ from queue import Queue
 
 from cassandra import OperationTimedOut
 from cassandra.cluster import Cluster, DefaultConnection
-from cassandra.cqltypes import ReversedType, UserType, VarcharType
+from cassandra.cqltypes import AsciiType, BooleanType, ByteType, BytesType, CounterColumnType, DateType, DecimalType, DoubleType, FloatType, FrozenType, Int32Type, IntegerType, InetAddressType, ListType, LongType, MapType, ReversedType, SetType, ShortType, SimpleDateType, TimeType, TimeUUIDType, TupleType, UUIDType, UserType, UTF8Type, VarcharType, VectorType
 from cassandra.metadata import protect_name, protect_names, protect_value
 from cassandra.policies import RetryPolicy, WhiteListRoundRobinPolicy, DCAwareRoundRobinPolicy, FallthroughRetryPolicy
 from cassandra.query import BatchStatement, BatchType, SimpleStatement, tuple_factory
@@ -2074,6 +2074,12 @@ class ImportConversion(object):
             return ImmutableDict(frozenset((convert_mandatory(ct.subtypes[0], v[0]), convert(ct.subtypes[1], v[1]))
                                  for v in [split(split_format_str % vv, sep=sep) for vv in split(val)]))
 
+        def convert_vector(val, ct=cql_type):
+            string_coordinates = split(val)
+            if len(string_coordinates) != ct.vector_size:
+                raise ParseError("The length of given vector value '%d' is not equal to the vector size from the type definition '%d'" % (len(string_coordinates), ct.vector_size))
+            return [convert_mandatory(ct.subtype, v) for v in string_coordinates]
+
         def convert_user_type(val, ct=cql_type):
             """
             A user type is a dictionary except that we must convert each key into
@@ -2105,31 +2111,32 @@ class ImportConversion(object):
             return val
 
         converters = {
-            'blob': convert_blob,
-            'decimal': get_convert_decimal_fcn(adapter=Decimal),
-            'uuid': convert_uuid,
-            'boolean': convert_bool,
-            'tinyint': get_convert_integer_fcn(),
-            'ascii': convert_text,
-            'float': get_convert_decimal_fcn(),
-            'double': get_convert_decimal_fcn(),
-            'bigint': get_convert_integer_fcn(adapter=int),
-            'int': get_convert_integer_fcn(),
-            'varint': get_convert_integer_fcn(),
-            'inet': convert_text,
-            'counter': get_convert_integer_fcn(adapter=int),
-            'timestamp': convert_datetime,
-            'timeuuid': convert_uuid,
-            'date': convert_date,
-            'smallint': get_convert_integer_fcn(),
-            'time': convert_time,
-            'text': convert_text,
-            'varchar': convert_text,
-            'list': convert_list,
-            'set': convert_set,
-            'map': convert_map,
-            'tuple': convert_tuple,
-            'frozen': convert_single_subtype,
+            BytesType.typename: convert_blob,
+            DecimalType.typename: get_convert_decimal_fcn(adapter=Decimal),
+            UUIDType.typename: convert_uuid,
+            BooleanType.typename: convert_bool,
+            ByteType.typename: get_convert_integer_fcn(),
+            AsciiType.typename: convert_text,
+            FloatType.typename: get_convert_decimal_fcn(),
+            DoubleType.typename: get_convert_decimal_fcn(),
+            LongType.typename: get_convert_integer_fcn(adapter=int),
+            Int32Type.typename: get_convert_integer_fcn(),
+            IntegerType.typename: get_convert_integer_fcn(),
+            InetAddressType.typename: convert_text,
+            CounterColumnType.typename: get_convert_integer_fcn(adapter=int),
+            DateType.typename: convert_datetime,
+            TimeUUIDType.typename: convert_uuid,
+            SimpleDateType.typename: convert_date,
+            ShortType.typename: get_convert_integer_fcn(),
+            TimeType.typename: convert_time,
+            UTF8Type.typename: convert_text,
+            VarcharType.typename: convert_text,
+            ListType.typename: convert_list,
+            SetType.typename: convert_set,
+            MapType.typename: convert_map,
+            TupleType.typename: convert_tuple,
+            FrozenType.typename: convert_single_subtype,
+            VectorType.typename: convert_vector,
         }
 
         return converters.get(cql_type.typename, convert_unknown)
