@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -68,6 +69,7 @@ public class CommitLogArchiver
     final String archiveCommand;
     final String restoreCommand;
     final String restoreDirectories;
+    final TimeUnit precision;
     long restorePointInTimeInMicroseconds;
     final CommitLogPosition snapshotCommitLogPosition;
 
@@ -75,13 +77,15 @@ public class CommitLogArchiver
                              String restoreCommand,
                              String restoreDirectories,
                              long restorePointInTimeInMicroseconds,
-                             CommitLogPosition snapshotCommitLogPosition)
+                             CommitLogPosition snapshotCommitLogPosition,
+                             TimeUnit precision)
     {
         this.archiveCommand = archiveCommand;
         this.restoreCommand = restoreCommand;
         this.restoreDirectories = restoreDirectories;
         this.restorePointInTimeInMicroseconds = restorePointInTimeInMicroseconds;
         this.snapshotCommitLogPosition = snapshotCommitLogPosition;
+        this.precision = precision;
         executor = !Strings.isNullOrEmpty(archiveCommand)
                    ? executorFactory()
                      .withJmxInternal()
@@ -91,7 +95,7 @@ public class CommitLogArchiver
 
     public static CommitLogArchiver disabled()
     {
-        return new CommitLogArchiver(null, null, null, Long.MAX_VALUE, CommitLogPosition.NONE);
+        return new CommitLogArchiver(null, null, null, Long.MAX_VALUE, CommitLogPosition.NONE, TimeUnit.MICROSECONDS);
     }
 
     public static CommitLogArchiver construct()
@@ -137,6 +141,19 @@ public class CommitLogArchiver
                 }
             }
         }
+
+        String precisionPropertyValue = commitlogCommands.getProperty("precision", TimeUnit.MICROSECONDS.name());
+
+        TimeUnit precision;
+        try
+        {
+            precision = TimeUnit.valueOf(precisionPropertyValue);
+        }
+        catch (IllegalArgumentException ex)
+        {
+            throw new RuntimeException("Unable to parse precision of value " + precisionPropertyValue, ex);
+        }
+
         String targetTime = commitlogCommands.getProperty("restore_point_in_time");
         long restorePointInTime = Long.MAX_VALUE;
         try
@@ -170,7 +187,8 @@ public class CommitLogArchiver
                                      restoreCommand,
                                      restoreDirectories,
                                      restorePointInTime,
-                                     snapshotCommitLogPosition);
+                                     snapshotCommitLogPosition,
+                                     precision);
     }
 
     public void maybeArchive(final CommitLogSegment segment)
