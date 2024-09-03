@@ -119,8 +119,8 @@ public class CommitLogReplayer implements CommitLogReadHandler
                 // Point in time restore is taken to mean that the tables need to be replayed even if they were
                 // deleted at a later point in time. Any truncation record after that point must thus be cleared prior
                 // to replay (CASSANDRA-9195).
-                // truncatedTime is millseconds level but restoreTime is microlevel
-                long restoreTime = commitLog.archiver.restorePointInTimeInMicros == Long.MAX_VALUE ? Long.MAX_VALUE : commitLog.archiver.restorePointInTimeInMicros / 1000;
+                // truncatedTime is in milliseconds level but restoreTime is in microseconds
+                long restoreTime = commitLog.archiver.restorePointInTimeInMicroseconds == Long.MAX_VALUE ? Long.MAX_VALUE : commitLog.archiver.restorePointInTimeInMicroseconds / 1000;
                 long truncatedTime = SystemKeyspace.getTruncatedAt(cfs.metadata.id);
                 if (truncatedTime > restoreTime)
                 {
@@ -146,7 +146,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
                 }
                 else
                 {
-                    if (commitLog.archiver.getRestorePointInTimeInMicroLevel() == Long.MAX_VALUE)
+                    if (commitLog.archiver.getRestorePointInTimeInMicroseconds() == Long.MAX_VALUE)
                     {
                         // Normal restart, everything is persisted and restored by the memtable itself.
                         filter = new IntervalSet<>(CommitLogPosition.NONE, CommitLog.instance.getCurrentPosition());
@@ -492,11 +492,11 @@ public class CommitLogReplayer implements CommitLogReadHandler
 
     protected boolean pointInTimeExceeded(Mutation fm)
     {
-        long tsInMicroSecondsLevel = archiver.restorePointInTimeInMicros;
+        long restorePointInTimeInMicroseconds = archiver.restorePointInTimeInMicroseconds;
 
         for (PartitionUpdate upd : fm.getPartitionUpdates())
         {
-            if (upd.maxTimestamp() > tsInMicroSecondsLevel)
+            if (upd.maxTimestamp() > restorePointInTimeInMicroseconds)
                 return true;
         }
         return false;

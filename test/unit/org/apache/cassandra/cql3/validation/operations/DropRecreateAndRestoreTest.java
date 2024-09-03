@@ -72,12 +72,12 @@ public class DropRecreateAndRestoreTest extends CQLTester
         try
         {
             // Restore to point in time (microseconds granularity)
-            CommitLog.instance.archiver.setRestorePointInTime(timeInMicroSecond1);
+            CommitLog.instance.archiver.setRestorePointInTimeInMicroseconds(timeInMicroSecond1);
             CommitLog.instance.resetUnsafe(false);
         }
         finally
         {
-            CommitLog.instance.archiver.setRestorePointInTime(Long.MAX_VALUE);
+            CommitLog.instance.archiver.setRestorePointInTimeInMicroseconds(Long.MAX_VALUE);
         }
 
         assertRows(execute("SELECT * FROM %s"), row(0, 0, 0), row(0, 1, 1));

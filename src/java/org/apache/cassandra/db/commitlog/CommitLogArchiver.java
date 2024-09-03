@@ -37,6 +37,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.File;
@@ -45,11 +49,6 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Strings;
-
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 
 public class CommitLogArchiver
@@ -57,33 +56,37 @@ public class CommitLogArchiver
     private static final Logger logger = LoggerFactory.getLogger(CommitLogArchiver.class);
 
     public static final DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss[.[SSSSSS][SSS]]").withZone(ZoneId.of("GMT"));
+    private static final String COMMITLOG_ARCHIVNG_PROPERTIES_FILE_NAME = "commitlog_archiving.properties";
     private static final String DELIMITER = ",";
     private static final Pattern NAME = Pattern.compile("%name");
     private static final Pattern PATH = Pattern.compile("%path");
     private static final Pattern FROM = Pattern.compile("%from");
     private static final Pattern TO = Pattern.compile("%to");
 
-    public final Map<String, Future<?>> archivePending = new ConcurrentHashMap<String, Future<?>>();
+    public final Map<String, Future<?>> archivePending = new ConcurrentHashMap<>();
     private final ExecutorService executor;
     final String archiveCommand;
     final String restoreCommand;
     final String restoreDirectories;
-    public long restorePointInTimeInMicros;
-    public CommitLogPosition snapshotCommitLogPosition;
+    long restorePointInTimeInMicroseconds;
+    final CommitLogPosition snapshotCommitLogPosition;
 
-    public CommitLogArchiver(String archiveCommand, String restoreCommand, String restoreDirectories,
-            long restorePointInTimeInMicros, CommitLogPosition snapshotCommitLogPosition)
+    public CommitLogArchiver(String archiveCommand,
+                             String restoreCommand,
+                             String restoreDirectories,
+                             long restorePointInTimeInMicroseconds,
+                             CommitLogPosition snapshotCommitLogPosition)
     {
         this.archiveCommand = archiveCommand;
         this.restoreCommand = restoreCommand;
         this.restoreDirectories = restoreDirectories;
-        this.restorePointInTimeInMicros = restorePointInTimeInMicros;
+        this.restorePointInTimeInMicroseconds = restorePointInTimeInMicroseconds;
         this.snapshotCommitLogPosition = snapshotCommitLogPosition;
         executor = !Strings.isNullOrEmpty(archiveCommand)
-                ? executorFactory()
-                    .withJmxInternal()
-                    .sequential("CommitLogArchiver")
-                : null;
+                   ? executorFactory()
+                     .withJmxInternal()
+                     .sequential(CommitLogArchiver.class.getSimpleName())
+                   : null;
     }
 
     public static CommitLogArchiver disabled()
@@ -93,27 +96,28 @@ public class CommitLogArchiver
 
     public static CommitLogArchiver construct()
     {
-        Properties commitlog_commands = new Properties();
-        try (InputStream stream = CommitLogArchiver.class.getClassLoader().getResourceAsStream("commitlog_archiving.properties"))
+        Properties commitlogProperties = new Properties();
+        try (InputStream stream = CommitLogArchiver.class.getClassLoader().getResourceAsStream(COMMITLOG_ARCHIVNG_PROPERTIES_FILE_NAME))
         {
             if (stream == null)
             {
-                logger.trace("No commitlog_archiving properties found; archive + pitr will be disabled");
+                logger.trace("No {} found; archiving and point-in-time-restoration will be disabled", COMMITLOG_ARCHIVNG_PROPERTIES_FILE_NAME);
                 return disabled();
             }
             else
             {
-                commitlog_commands.load(stream);
-                return getArchiverFromProperty(commitlog_commands);
+                commitlogProperties.load(stream);
+                return getArchiverFromProperties(commitlogProperties);
             }
         }
         catch (IOException e)
         {
-            throw new RuntimeException("Unable to load commitlog_archiving.properties", e);
+            throw new RuntimeException("Unable to load " + COMMITLOG_ARCHIVNG_PROPERTIES_FILE_NAME, e);
         }
     }
 
-    public static CommitLogArchiver getArchiverFromProperty(Properties commitlogCommands)
+    @VisibleForTesting
+    static CommitLogArchiver getArchiverFromProperties(Properties commitlogCommands)
     {
         assert !commitlogCommands.isEmpty();
         String archiveCommand = commitlogCommands.getProperty("archive_command");
@@ -140,7 +144,7 @@ public class CommitLogArchiver
             if (!Strings.isNullOrEmpty(targetTime))
             {
                 // get restorePointInTime in microseconds level by default as cassandra use this level's timestamp
-                restorePointInTime = getMicroSeconds(targetTime);
+                restorePointInTime = getRestorationPointInTimeInMicroseconds(targetTime);
             }
         }
         catch (DateTimeParseException | ConfigurationException e)
@@ -175,7 +179,7 @@ public class CommitLogArchiver
             return;
         if (!segment.logFile.exists())
         {
-            logger.warn("Commitlog file : " + segment.logFile + " is not exist, skip archiving");
+            logger.warn("Commitlog file {} does not exist, skipping archiving.", segment.logFile);
             return;
         }
         archivePending.put(segment.getName(), executor.submit(new WrappedRunnable()
@@ -194,7 +198,7 @@ public class CommitLogArchiver
      * Differs from the above because it can be used on any file, rather than only
      * managed commit log segments (and thus cannot call waitForFinalSync), and in
      * the treatment of failures.
-     *
+     * <p>
      * Used to archive files present in the commit log directory at startup (CASSANDRA-6904).
      * Since the files being already archived by normal operation could cause subsequent
      * hard-linking or other operations to fail, we should not throw errors on failure
@@ -204,20 +208,16 @@ public class CommitLogArchiver
         if (Strings.isNullOrEmpty(archiveCommand))
             return;
 
-        archivePending.put(name, executor.submit(new Runnable()
-        {
-            public void run()
+        archivePending.put(name, executor.submit(() -> {
+            try
             {
-                try
-                {
-                    String command = NAME.matcher(archiveCommand).replaceAll(Matcher.quoteReplacement(name));
-                    command = PATH.matcher(command).replaceAll(Matcher.quoteReplacement(path));
-                    exec(command);
-                }
-                catch (IOException e)
-                {
-                    logger.warn("Archiving file {} failed, file may have already been archived.", name, e);
-                }
+                String command = NAME.matcher(archiveCommand).replaceAll(Matcher.quoteReplacement(name));
+                command = PATH.matcher(command).replaceAll(Matcher.quoteReplacement(path));
+                exec(command);
+            }
+            catch (IOException e)
+            {
+                logger.warn("Archiving file {} failed, file may have already been archived.", name, e);
             }
         }));
     }
@@ -242,7 +242,7 @@ public class CommitLogArchiver
             {
                 if (e.getCause().getCause() instanceof IOException)
                 {
-                    logger.error("Looks like the archiving of file {} failed earlier, cassandra is going to ignore this segment for now.", name, e.getCause().getCause());
+                    logger.error("Looks like the archiving of file {} failed earlier, Cassandra is going to ignore this segment for now.", name, e.getCause().getCause());
                     return false;
                 }
             }
@@ -325,24 +325,27 @@ public class CommitLogArchiver
     }
 
     /**
-     * we change the restorePointInTime into MicroSeconds level as cassandra use MicroSeconds
+     * We change the restore_point_in_time from configuration file into microseconds level as Cassandra use microseconds
      * as the timestamp.
-     * */
-    public static long getMicroSeconds(String restorePointInTime)
+     *
+     * @param restorationPointInTime value of "restore_point_in_time" in properties file.
+     * @return microseconds value of restore_point_in_time
+     */
+    public static long getRestorationPointInTimeInMicroseconds(String restorationPointInTime)
     {
-        assert format != null;
-        Instant instant = format.parse(restorePointInTime, Instant::from);
-        return instant.getEpochSecond() * 1000_000 + instant.getNano() / 1000;
+        assert !Strings.isNullOrEmpty(restorationPointInTime) : "restore_point_in_time is null or empty!";
+        Instant instant = format.parse(restorationPointInTime, Instant::from);
+        return instant.getEpochSecond() * 1_000_000 + instant.getNano() / 1000;
     }
 
-    public long getRestorePointInTimeInMicroLevel()
+    public long getRestorePointInTimeInMicroseconds()
     {
-        return this.restorePointInTimeInMicros;
+        return this.restorePointInTimeInMicroseconds;
     }
 
     @VisibleForTesting
-    public void setRestorePointInTime(long restorePointInTimeInMicros)
+    public void setRestorePointInTimeInMicroseconds(long restorePointInTimeInMicroseconds)
     {
-        this.restorePointInTimeInMicros = restorePointInTimeInMicros;
+        this.restorePointInTimeInMicroseconds = restorePointInTimeInMicroseconds;
     }
 }
