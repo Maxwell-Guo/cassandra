@@ -53,6 +53,7 @@ public class TableMetricsTest
     private static final String TABLE = "tablemetricstest";
     private static final String COUNTER_TABLE = "tablemetricscountertest";
     private static final String TWCS_TABLE = "tablemetricstesttwcs";
+    private static final String LIKE_TABLE = "liketablemetrics";
 
     private static EmbeddedCassandraService cassandra;
     private static Cluster cluster;
