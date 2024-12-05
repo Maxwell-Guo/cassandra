@@ -75,17 +75,6 @@ public final class CopyTableStatement extends AlterSchemaStatement
         return new AuditLogContext(AuditLogEntryType.CREATE_TABLE_LIKE, targetKeyspace, targetTableName);
     }
 
-    public String toString()
-    {
-        return String.format("CREATE TABLE %s.%s LIKE %s.%s", targetKeyspace, targetTableName, sourceKeyspace, sourceTableName);
-    }
-
-    @Override
-    public void validate(ClientState state)
-    {
-        super.validate(state);
-    }
-
     @Override
     public Keyspaces apply(ClusterMetadata metadata)
     {
@@ -97,9 +86,7 @@ public final class CopyTableStatement extends AlterSchemaStatement
             throw ire("Source Keyspace '%s' doesn't exist", sourceKeyspace);
 
         if (null == sourceTableMeta)
-        {
             throw ire("Souce Table '%s'.'%s' doesn't exist", sourceKeyspace, sourceTableName);
-        }
 
         if (sourceTableMeta.isIndex())
             throw ire("Cannot use CTREATE TABLE LIKE on a index table '%s'.'%s'.", sourceKeyspace, sourceTableName);
@@ -112,15 +99,11 @@ public final class CopyTableStatement extends AlterSchemaStatement
             throw ire("Target Keyspace '%s' doesn't exist", targetKeyspace);
 
         if (targetKeyspaceMeta.hasTable(targetTableName))
-        {
             throw new AlreadyExistsException(targetKeyspace, targetTableName);
-        }
 
         // todo support udt for differenet ks latter
         if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) && !sourceKeyspaceMeta.types.isEmpty())
-        {
             throw ire("Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDTs.");
-        }
 
         String sourceCQLString = sourceTableMeta.toCqlString(false, false, true, false);
         // add all user functions to be able to give a good error message to the user if the alter references

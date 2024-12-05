@@ -1126,11 +1126,6 @@ public abstract class CQLTester
         QueryProcessor.executeOnceInternal(fullQuery);
     }
 
-    protected String createView(String keyspace, String query)
-    {
-        return createView(keyspace, null, query);
-    }
-
     /**
      * Creates a materialized view, waiting for the completion of its builder tasks.
      *
@@ -1139,20 +1134,19 @@ public abstract class CQLTester
      */
     protected String createView(String query)
     {
-        return createView(null, null, query);
+        return createView(null, query);
     }
 
     /**
      * Creates a materialized view, waiting for the completion of its builder tasks.
      *
-     * @param keyspace the keyspace of the view to be created, or {@code null} for using {{@link #KEYSPACE}} as keyspace
      * @param viewName the name of the view to be created, or {@code null} for using an automatically generated a name
      * @param query the {@code CREATE VIEW} query, with {@code %s} placeholders for the view and table names
      * @return the name of the created view
      */
-    protected String createView(String keyspace, String viewName, String query)
+    protected String createView(String viewName, String query)
     {
-        String currentView = createViewAsync(keyspace, viewName, query);
+        String currentView = createViewAsync(viewName, query);
         waitForViewBuild(currentView);
         return currentView;
     }
@@ -1165,22 +1159,20 @@ public abstract class CQLTester
      */
     protected String createViewAsync(String query)
     {
-        return createViewAsync(null, null, query);
+        return createViewAsync(null, query);
     }
 
     /**
      * Creates a materialized view, without waiting for the completion of its builder tasks.
      *
-     * @param keyspace the keyspace of the view to be created
      * @param viewName the name of the view to be created, or {@code null} for using an automatically generated a name
      * @param query the {@code CREATE VIEW} query, with {@code %s} placeholders for the view and table names
      * @return the name of the created view
      */
-    protected String createViewAsync(String keyspace, String viewName, String query)
+    protected String createViewAsync(String viewName, String query)
     {
-        String targetKs = keyspace == null ? KEYSPACE : keyspace;
         String currentView = viewName == null ? createViewName() : viewName;
-        String fullQuery = String.format(query, targetKs + "." + currentView, targetKs + "." + currentTable());
+        String fullQuery = String.format(query, KEYSPACE + "." + currentView, KEYSPACE + "." + currentTable());
         logger.info(fullQuery);
         schemaChange(fullQuery);
         return currentView;
@@ -1188,18 +1180,12 @@ public abstract class CQLTester
 
     protected void dropView()
     {
-        dropView(null, currentView());
+        dropView(currentView());
     }
 
     protected void dropView(String view)
     {
-        dropView(null, view);
-    }
-
-    protected void dropView(String keyspace, String view)
-    {
-        String targetKs = keyspace == null ? KEYSPACE : keyspace;
-        dropFormattedTable(String.format("DROP MATERIALIZED VIEW IF EXISTS %s.%s", targetKs, view));
+        dropFormattedTable(String.format("DROP MATERIALIZED VIEW IF EXISTS %s.%s", KEYSPACE, view));
         views.remove(view);
     }
 
