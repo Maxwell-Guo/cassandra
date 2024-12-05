@@ -25,10 +25,13 @@ import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QualifiedName;
 import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
+import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Keyspaces;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.Triggers;
+import org.apache.cassandra.schema.UserFunctions;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.tcm.ClusterMetadata;
@@ -74,7 +77,7 @@ public final class CopyTableStatement extends AlterSchemaStatement
 
     public String toString()
     {
-        return String.format("CREATE TABLE (%s, %s) LIKE (%s, %s)", targetKeyspace, targetTableName, sourceKeyspace, sourceTableName);
+        return String.format("CREATE TABLE %s.%s LIKE %s.%s", targetKeyspace, targetTableName, sourceKeyspace, sourceTableName);
     }
 
     @Override
@@ -93,16 +96,16 @@ public final class CopyTableStatement extends AlterSchemaStatement
         if (null == sourceKeyspaceMeta)
             throw ire("Source Keyspace '%s' doesn't exist", sourceKeyspace);
 
-        if (!sourceKeyspaceMeta.hasTable(sourceTableName))
+        if (null == sourceTableMeta)
         {
             throw ire("Souce Table '%s'.'%s' doesn't exist", sourceKeyspace, sourceTableName);
         }
 
         if (sourceTableMeta.isIndex())
-            throw ire("Cannot use CTREAT TABLE LIKE on a index table '%s'.'%s'.", sourceKeyspace, sourceTableName);
+            throw ire("Cannot use CTREATE TABLE LIKE on a index table '%s'.'%s'.", sourceKeyspace, sourceTableName);
 
         if (sourceTableMeta.isView())
-            throw ire("Cannot use CTREAT TABLE LIKE on a materialized view '%s'.'%s'.", sourceKeyspace, sourceTableName);
+            throw ire("Cannot use CTREATE TABLE LIKE on a materialized view '%s'.'%s'.", sourceKeyspace, sourceTableName);
 
         KeyspaceMetadata targetKeyspaceMeta = schema.getNullable(targetKeyspace);
         if (null == targetKeyspaceMeta)
@@ -114,13 +117,28 @@ public final class CopyTableStatement extends AlterSchemaStatement
         }
 
         // todo support udt for differenet ks latter
-        if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) &&
-            !sourceKeyspaceMeta.types.isEmpty())
+        if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) && !sourceKeyspaceMeta.types.isEmpty())
         {
-            throw ire("Cannot use CTREAT TABLE LIKE across different keyspace when source table have UDT.");
+            throw ire("Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDTs.");
         }
 
-        TableMetadata table = buildTargetTableMeta(metadata, sourceTableMeta);
+        String sourceCQLString = sourceTableMeta.toCqlString(false, false, true, false);
+        // add all user functions to be able to give a good error message to the user if the alter references
+        // a function from another keyspace
+        UserFunctions.Builder ufBuilder = UserFunctions.builder().add();
+        for (KeyspaceMetadata ksm : schema)
+            ufBuilder.add(ksm.userFunctions);
+
+        //todo support table params' setting in the future
+        TableMetadata.Builder targetBuilder = CreateTableStatement.parse(sourceCQLString,
+                                                                         targetKeyspace,
+                                                                         targetTableName,
+                                                                         sourceKeyspaceMeta.types,
+                                                                         ufBuilder.build())
+                                                                  .indexes(Indexes.none())
+                                                                  .triggers(Triggers.none());
+
+        TableMetadata table = targetBuilder.id(TableId.get(metadata)).build();
         table.validate();
 
         if (targetKeyspaceMeta.replicationStrategy.hasTransientReplicas()
@@ -133,15 +151,6 @@ public final class CopyTableStatement extends AlterSchemaStatement
             Guardrails.uncompressedTablesEnabled.ensureEnabled(state);
 
         return schema.withAddedOrUpdated(targetKeyspaceMeta.withSwapped(targetKeyspaceMeta.tables.with(table)));
-    }
-
-    private TableMetadata buildTargetTableMeta(ClusterMetadata metadata, TableMetadata sourceTableMetadata)
-    {
-        TableMetadata.Builder builder = sourceTableMetadata.cloneBuilder(targetKeyspace, targetTableName);
-        // todo support indexes and triggers's copy latter
-        builder.id(TableId.get(metadata))
-               .epoch(metadata.nextEpoch()); // new table with next expoch
-        return builder.build();
     }
 
     public final static class Raw extends CQLStatement.Raw

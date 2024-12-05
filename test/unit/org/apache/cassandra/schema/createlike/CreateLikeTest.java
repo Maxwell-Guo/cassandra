@@ -394,11 +394,11 @@ public class CreateLikeTest extends CQLTester
         if (differentKs)
         {
             expectedFailure(InvalidRequestException.class, "create table " + targetKs + ".tbudt like " + sourceKs + "." + sourceTbUdt  ,
-                    "Cannot use CTREAT TABLE LIKE across different keyspace when source table have UDT");
+                    "Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDT");
             expectedFailure(InvalidRequestException.class, "create table " + targetKs + ".tbdtset like " + sourceKs + "." + sourceTbUdt  ,
-                    "Cannot use CTREAT TABLE LIKE across different keyspace when source table have UDT");
+                    "Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDT");
             expectedFailure(InvalidRequestException.class, "create table " + targetKs + ".tbudtfrozen like " + sourceKs + "." + sourceTbUdt  ,
-                    "Cannot use CTREAT TABLE LIKE across different keyspace when source table have UDT");
+                    "Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDT");
         }
         else
         {

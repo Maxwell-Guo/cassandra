@@ -2004,15 +2004,10 @@ public abstract class CQLTester
         TableMetadata targetTbMeta = getTableMetadata(targetKeyspace, targetTable);
         assertNotNull(sourceTbMeta);
         assertNotNull(targetTbMeta);
-        assertTrue(sourceTbMeta.equalsWithoutTableName(targetTbMeta));
+        assertTrue(sourceTbMeta.equalsWithoutTableNameAndDropCns(targetTbMeta));
         targetTbMeta.columns().stream().forEach(columnMetadata -> {
             assertEquals(columnMetadata.ksName, targetKeyspace);
             assertEquals(columnMetadata.cfName, targetTable);
-        });
-        targetTbMeta.droppedColumns.entrySet().forEach(droppedColumnEntry -> {
-            assertEquals(droppedColumnEntry.getValue().column.ksName, targetKeyspace);
-            assertEquals(droppedColumnEntry.getValue().column.cfName, targetTable);
-            assertEquals(sourceTbMeta.droppedColumns.get(droppedColumnEntry.getKey()).droppedTime, droppedColumnEntry.getValue().droppedTime);
         });
         assertNotEquals(sourceTbMeta.id, targetTbMeta.id);
         assertNotEquals(sourceTbMeta.name, targetTbMeta.name);
