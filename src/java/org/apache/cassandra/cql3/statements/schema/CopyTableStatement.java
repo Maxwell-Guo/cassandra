@@ -30,6 +30,7 @@ import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Keyspaces;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.schema.Triggers;
 import org.apache.cassandra.schema.UserFunctions;
 import org.apache.cassandra.service.ClientState;
@@ -37,23 +38,32 @@ import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.transport.Event.SchemaChange;
 
+/**
+ * {@code CREATE TABLE [IF NOT EXISTS] <newtable> LIKE <oldtable> WITH <property> = <value>}
+ */
 public final class CopyTableStatement extends AlterSchemaStatement
 {
     private final String sourceKeyspace;
     private final String sourceTableName;
     private final String targetKeyspace;
     private final String targetTableName;
+    private final boolean ifNotExists;
+    private final TableAttributes attrs;
 
     public CopyTableStatement(String sourceKeyspace,
                               String targetKeyspace,
                               String sourceTableName,
-                              String targetTableName)
+                              String targetTableName,
+                              boolean ifNotExists,
+                              TableAttributes attrs)
     {
         super(targetKeyspace);
         this.sourceKeyspace = sourceKeyspace;
         this.targetKeyspace = targetKeyspace;
         this.sourceTableName = sourceTableName;
         this.targetTableName = targetTableName;
+        this.ifNotExists = ifNotExists;
+        this.attrs = attrs;
     }
 
     @Override
@@ -89,21 +99,25 @@ public final class CopyTableStatement extends AlterSchemaStatement
             throw ire("Souce Table '%s'.'%s' doesn't exist", sourceKeyspace, sourceTableName);
 
         if (sourceTableMeta.isIndex())
-            throw ire("Cannot use CTREATE TABLE LIKE on a index table '%s'.'%s'.", sourceKeyspace, sourceTableName);
+            throw ire("Cannot use CREATE TABLE LIKE on a index table '%s'.'%s'.", sourceKeyspace, sourceTableName);
 
         if (sourceTableMeta.isView())
-            throw ire("Cannot use CTREATE TABLE LIKE on a materialized view '%s'.'%s'.", sourceKeyspace, sourceTableName);
+            throw ire("Cannot use CREATE TABLE LIKE on a materialized view '%s'.'%s'.", sourceKeyspace, sourceTableName);
 
         KeyspaceMetadata targetKeyspaceMeta = schema.getNullable(targetKeyspace);
         if (null == targetKeyspaceMeta)
             throw ire("Target Keyspace '%s' doesn't exist", targetKeyspace);
 
         if (targetKeyspaceMeta.hasTable(targetTableName))
-            throw new AlreadyExistsException(targetKeyspace, targetTableName);
+        {
+            if(ifNotExists)
+                return schema;
 
+            throw new AlreadyExistsException(targetKeyspace, targetTableName);
+        }
         // todo support udt for differenet ks latter
         if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) && !sourceKeyspaceMeta.types.isEmpty())
-            throw ire("Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDTs.");
+            throw ire("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDTs.");
 
         String sourceCQLString = sourceTableMeta.toCqlString(false, false, true, false);
         // add all user functions to be able to give a good error message to the user if the alter references
@@ -112,7 +126,6 @@ public final class CopyTableStatement extends AlterSchemaStatement
         for (KeyspaceMetadata ksm : schema)
             ufBuilder.add(ksm.userFunctions);
 
-        //todo support table params' setting in the future
         TableMetadata.Builder targetBuilder = CreateTableStatement.parse(sourceCQLString,
                                                                          targetKeyspace,
                                                                          targetTableName,
@@ -121,7 +134,11 @@ public final class CopyTableStatement extends AlterSchemaStatement
                                                                   .indexes(Indexes.none())
                                                                   .triggers(Triggers.none());
 
-        TableMetadata table = targetBuilder.id(TableId.get(metadata)).build();
+        TableParams originalParams = targetBuilder.build().params;
+        TableParams newTableParams = attrs.asAlteredTableParams(originalParams);
+        TableMetadata table = targetBuilder.params(newTableParams)
+                                           .id(TableId.get(metadata))
+                                           .build();
         table.validate();
 
         if (targetKeyspaceMeta.replicationStrategy.hasTransientReplicas()
@@ -140,11 +157,14 @@ public final class CopyTableStatement extends AlterSchemaStatement
     {
         private final QualifiedName oldName;
         private final QualifiedName newName;
+        private final boolean ifNotExists;
+        public final TableAttributes attrs = new TableAttributes();
 
-        public Raw(QualifiedName newName, QualifiedName oldName)
+        public Raw(QualifiedName newName, QualifiedName oldName, boolean ifNotExists)
         {
             this.newName = newName;
             this.oldName = oldName;
+            this.ifNotExists = ifNotExists;
         }
 
         @Override
@@ -152,7 +172,7 @@ public final class CopyTableStatement extends AlterSchemaStatement
         {
             String oldKeyspace = oldName.hasKeyspace() ? oldName.getKeyspace() : state.getKeyspace();
             String newKeyspace = newName.hasKeyspace() ? newName.getKeyspace() : state.getKeyspace();
-            return new CopyTableStatement(oldKeyspace, newKeyspace, oldName.getName(), newName.getName());
+            return new CopyTableStatement(oldKeyspace, newKeyspace, oldName.getName(), newName.getName(), ifNotExists, attrs);
         }
     }
 }

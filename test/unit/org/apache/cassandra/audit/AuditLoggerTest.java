@@ -540,7 +540,7 @@ public class AuditLoggerTest extends CQLTester
 
         String sourceTable = currentTable();
 
-        cql = "CREATE TABLE " + KEYSPACE + "." + createTableName() + " like " + KEYSPACE + "." + sourceTable;
+        cql = "CREATE TABLE " + KEYSPACE + "." + createTableName() + " LIKE " + KEYSPACE + "." + sourceTable;
         executeAndAssert(cql, AuditLogEntryType.CREATE_TABLE_LIKE);
 
         cql = "INSERT INTO " + KEYSPACE + '.' + currentTable() + "  (id, v1, v2) VALUES (?, ?, ?)";

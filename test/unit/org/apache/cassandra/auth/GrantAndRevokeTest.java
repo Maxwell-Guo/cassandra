@@ -405,7 +405,7 @@ public class GrantAndRevokeTest extends CQLTester
 
         useUser(user, pass);
         assertUnauthorizedQuery("User user has no SELECT permission on <table ks1.sourcetb> or any of its parents",
-                                "CREATE TABLE ks1.targetTb like ks1.sourcetb");
+                                "CREATE TABLE ks1.targetTb LIKE ks1.sourcetb");
 
         // has select permission on source table no create permission on target keyspace
         useSuperUser();
@@ -415,7 +415,7 @@ public class GrantAndRevokeTest extends CQLTester
 
         useUser(user, pass);
         assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ks1> or any of its parents",
-                                "CREATE TABLE ks1.targetTb like ks1.sourcetb");
+                                "CREATE TABLE ks1.targetTb LIKE ks1.sourcetb");
 
         // different keyspaces
         // has select permission on source table no create permission on target keyspace
@@ -426,7 +426,16 @@ public class GrantAndRevokeTest extends CQLTester
 
         useUser(user, pass);
         assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ks2> or any of its parents",
-                                "CREATE TABLE ks2.targetTb like ks1.sourcetb");
+                                "CREATE TABLE ks2.targetTb LIKE ks1.sourcetb");
+
+        // source keyspace and table does not exists
+        assertUnauthorizedQuery("User user has no SELECT permission on <table ks1.tbnotexist> or any of its parents",
+                                "CREATE TABLE ks2.targetTb LIKE ks1.tbnotexist");
+        assertUnauthorizedQuery("User user has no SELECT permission on <table ksnotexists.sourcetb> or any of its parents",
+                                "CREATE TABLE ks2.targetTb LIKE ksnotexists.sourcetb");
+        // target keyspace does not exists
+        assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ksnotexists> or any of its parents",
+                                "CREATE TABLE ksnotexists.targetTb LIKE ks1.sourcetb");
 
     }
 }

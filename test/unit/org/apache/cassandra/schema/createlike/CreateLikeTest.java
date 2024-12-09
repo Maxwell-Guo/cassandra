@@ -21,8 +21,10 @@ package org.apache.cassandra.schema.createlike;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.Before;
@@ -34,12 +36,23 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.Duration;
 import org.apache.cassandra.cql3.validation.operations.CreateTest;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.compaction.LeveledCompactionStrategy;
+import org.apache.cassandra.exceptions.AlreadyExistsException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.schema.CachingParams;
+import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.Indexes;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TableParams;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
+import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.utils.TimeUUID;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(Parameterized.class)
 public class CreateLikeTest extends CQLTester
@@ -90,7 +103,7 @@ public class CreateLikeTest extends CQLTester
     public void testTableShemaCopy()
     {
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY, b duration, c text);");
-        String targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        String targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a, b, c) VALUES (?, ?, ?)", 1, duration1, "1");
         execute("INSERT INTO " + targetKs + "." + targetTb + " (a, b, c) VALUES (?, ?, ?)", 2, duration2, "2");
@@ -100,7 +113,7 @@ public class CreateLikeTest extends CQLTester
                    row(2, duration2, "2"));
 
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY);");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a) VALUES (1)");
         execute("INSERT INTO " + targetKs + "." + targetTb + " (a) VALUES (2)");
@@ -110,7 +123,7 @@ public class CreateLikeTest extends CQLTester
                    row(2));
 
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (a frozen<map<text, text>> PRIMARY KEY);");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a) VALUES (?)", map("k", "v"));
         execute("INSERT INTO " + targetKs + "." + targetTb + " (a) VALUES (?)", map("nk", "nv"));
@@ -120,7 +133,7 @@ public class CreateLikeTest extends CQLTester
                    row(map("nk", "nv")));
 
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY, b set<frozen<list<text>>>, c map<text, int>, d smallint, e duration, f tinyint);");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a, b, c, d, e, f) VALUES (?, ?, ?, ?, ?, ?)",
                 1, set(list("1", "2"), list("3", "4")), map("k", 1), (short)2, duration1, (byte)4);
@@ -132,7 +145,7 @@ public class CreateLikeTest extends CQLTester
                    row(2, set(list("5", "6"), list("7", "8")), map("nk", 2), (short)3, duration2, (byte)5));
 
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int , b double, c tinyint, d float, e list<text>, f map<text, int>, g duration, PRIMARY KEY((a, b, c), d));");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?) ",
                 1, d1, (byte)4, f1, list("a", "b"), map("k", 1), duration1);
@@ -155,7 +168,7 @@ public class CreateLikeTest extends CQLTester
                                                                 "j map<text, frozen<set<int>>>, " +
                                                                 "PRIMARY KEY((a, b), c, d)) " +
                                                                 "WITH CLUSTERING ORDER BY (c DESC, d ASC);");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a, b, c, d, e, f, g, h, i, j)  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 1, "b", 100L, decimal1, set("1", "2"), uuid1, vector1, list(1.1F, 2.2F), timeUuid1, map("k", set(1, 2)));
@@ -168,22 +181,34 @@ public class CreateLikeTest extends CQLTester
     }
 
     @Test
+    public void testIfNotExists() throws Throwable
+    {
+        String sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int, b text, c duration, d float, PRIMARY KEY(a, b));");
+        String targetTb = createTableLike("CREATE TABLE IF NOT EXISTS %s LIKE %s", sourceTb, sourceKs, targetKs);
+        assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
+
+        createTableLike("CREATE TABLE IF NOT EXISTS %s LIKE %s", sourceTb, sourceKs, targetTb, targetKs);
+        assertInvalidThrowMessage("Cannot add already existing table \"" + targetTb + "\" to keyspace \"" + targetKs + "\"", AlreadyExistsException.class,
+                                  "CREATE TABLE " + targetKs + "." + targetTb + " LIKE " + sourceKs + "." + sourceTb);
+    }
+
+    @Test
     public void testCopyAfterAlterTable()
     {
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int, b text, c duration, d float, PRIMARY KEY(a, b));");
-        String targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        String targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         alterTable("ALTER TABLE  " + sourceKs + " ." + sourceTb + " DROP d");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         alterTable("ALTER TABLE " + sourceKs + " ." + sourceTb + " ADD e uuid");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         alterTable("ALTER TABLE " + sourceKs + " ." + sourceTb + " ADD f float");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a, b, c, e, f) VALUES (?, ?, ?, ?, ?)", 1, "1", duration1, uuid1, f1);
@@ -194,15 +219,15 @@ public class CreateLikeTest extends CQLTester
                    row(2, "2", duration2, uuid2, f2));
 
         alterTable("ALTER TABLE " + sourceKs + " ." + sourceTb + " DROP f USING TIMESTAMP 20000");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         alterTable("ALTER TABLE " + sourceKs + " ." + sourceTb + " RENAME b TO bb ");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         alterTable("ALTER TABLE " + sourceKs + " ." + sourceTb + " WITH compaction = {'class':'LeveledCompactionStrategy', 'sstable_size_in_mb':10, 'fanout_size':16} ");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         execute("INSERT INTO " + sourceKs + "." + sourceTb + " (a, bb, c, e) VALUES (?, ?, ?, ?)", 1, "1", duration1, uuid1);
@@ -258,29 +283,29 @@ public class CreateLikeTest extends CQLTester
                                                         " AND compaction = {'class':'UnifiedCompactionStrategy'} " +
                                                         " AND compression = { 'class' : 'SnappyCompressor', 'chunk_length_in_kb' : 32 }" +
                                                         " AND gc_grace_seconds = 100" +
-                                                        " AND  incremental_backups = false" +
+                                                        " AND incremental_backups = false" +
                                                         " AND max_index_interval = 1024" +
-                                                         " AND  min_index_interval = 64" +
+                                                        " AND min_index_interval = 64" +
                                                         " AND speculative_retry = '95p'" +
                                                         " AND read_repair = 'NONE'" +
                                                         " AND memtable_flush_period_in_ms = 360000" +
                                                         " AND memtable = 'default';" );
 
-        String tbLikeCompressionDefault1 = createTableLike("create table %s like %s", tbCompressionDefault1, sourceKs, targetKs);
-        String tbLikeCompressionDefault2 = createTableLike("create table %s like %s", tbCompressionDefault2, sourceKs, targetKs);
-        String tbLikeCompressionSp1 = createTableLike("create table %s like %s", tbCompressionSnappy1, sourceKs, targetKs);
-        String tbLikeCompressionSp2 = createTableLike("create table %s like %s", tbCompressionSnappy2, sourceKs, targetKs);
-        String tbLikeCompressionSp3 = createTableLike("create table %s like %s", tbCompressionSnappy3, sourceKs, targetKs);
-        String tbLikeCompressionSp4 = createTableLike("create table %s like %s", tbCompressionSnappy4, sourceKs, targetKs);
-        String tbLikeCompressionSp5 = createTableLike("create table %s like %s", tbCompressionSnappy5, sourceKs, targetKs);
-        String tbLikeMemtableSkipList = createTableLike("create table %s like %s", tableMemtableSkipList, sourceKs, targetKs);
-        String tbLikeMemtableTrie = createTableLike("create table %s like %s", tableMemtableTrie, sourceKs, targetKs);
-        String tbLikeMemtableDefault = createTableLike("create table %s like %s", tableMemtableDefault, sourceKs, targetKs);
-        String tbLikeCompactionStcs = createTableLike("create table %s like %s", tableCompactionStcs, sourceKs, targetKs);
-        String tbLikeCompactionLcs = createTableLike("create table %s like %s", tableCompactionLcs, sourceKs, targetKs);
-        String tbLikeCompactionTwcs = createTableLike("create table %s like %s", tableCompactionTwcs, sourceKs, targetKs);
-        String tbLikeCompactionUcs = createTableLike("create table %s like %s", tableCompactionUcs, sourceKs, targetKs);
-        String tbLikeCompactionOthers= createTableLike("create table %s like %s", tableOtherOptions, sourceKs, targetKs);
+        String tbLikeCompressionDefault1 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionDefault1, sourceKs, targetKs);
+        String tbLikeCompressionDefault2 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionDefault2, sourceKs, targetKs);
+        String tbLikeCompressionSp1 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionSnappy1, sourceKs, targetKs);
+        String tbLikeCompressionSp2 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionSnappy2, sourceKs, targetKs);
+        String tbLikeCompressionSp3 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionSnappy3, sourceKs, targetKs);
+        String tbLikeCompressionSp4 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionSnappy4, sourceKs, targetKs);
+        String tbLikeCompressionSp5 = createTableLike("CREATE TABLE %s LIKE %s", tbCompressionSnappy5, sourceKs, targetKs);
+        String tbLikeMemtableSkipList = createTableLike("CREATE TABLE %s LIKE %s", tableMemtableSkipList, sourceKs, targetKs);
+        String tbLikeMemtableTrie = createTableLike("CREATE TABLE %s LIKE %s", tableMemtableTrie, sourceKs, targetKs);
+        String tbLikeMemtableDefault = createTableLike("CREATE TABLE %s LIKE %s", tableMemtableDefault, sourceKs, targetKs);
+        String tbLikeCompactionStcs = createTableLike("CREATE TABLE %s LIKE %s", tableCompactionStcs, sourceKs, targetKs);
+        String tbLikeCompactionLcs = createTableLike("CREATE TABLE %s LIKE %s", tableCompactionLcs, sourceKs, targetKs);
+        String tbLikeCompactionTwcs = createTableLike("CREATE TABLE %s LIKE %s", tableCompactionTwcs, sourceKs, targetKs);
+        String tbLikeCompactionUcs = createTableLike("CREATE TABLE %s LIKE %s", tableCompactionUcs, sourceKs, targetKs);
+        String tbLikeCompactionOthers= createTableLike("CREATE TABLE %s LIKE %s", tableOtherOptions, sourceKs, targetKs);
 
         assertTableMetaEquals(sourceKs, targetKs, tbCompressionDefault1, tbLikeCompressionDefault1);
         assertTableMetaEquals(sourceKs, targetKs, tbCompressionDefault2, tbLikeCompressionDefault2);
@@ -297,6 +322,57 @@ public class CreateLikeTest extends CQLTester
         assertTableMetaEquals(sourceKs, targetKs, tableCompactionTwcs, tbLikeCompactionTwcs);
         assertTableMetaEquals(sourceKs, targetKs, tableCompactionUcs, tbLikeCompactionUcs);
         assertTableMetaEquals(sourceKs, targetKs, tableOtherOptions, tbLikeCompactionOthers);
+
+        // table copy with params setting
+        String tableCopyAndSetCompression = createTableLike("CREATE TABLE %s LIKE %s WITH compression = { 'class' : 'SnappyCompressor', 'chunk_length_in_kb' : 64 };",
+                                                            tbCompressionSnappy1, sourceKs, targetKs);
+        String tableCopyAndSetLCSCompaction = createTableLike("CREATE TABLE %s LIKE %s WITH compaction = {'class':'LeveledCompactionStrategy', 'sstable_size_in_mb':10, 'fanout_size':16};",
+                                                           tableCompactionLcs, sourceKs, targetKs);
+        String tableCopyAndSetAllParams = createTableLike("CREATE TABLE %s (a text, b int, c int, primary key (a, b)) WITH" +
+                                                           " bloom_filter_fp_chance = 0.75 " +
+                                                           " AND caching = {'keys': 'NONE', 'rows_per_partition': '10'}" +
+                                                           " AND cdc = true " +
+                                                           " AND comment = 'test for create like and set params'" +
+                                                           " AND crc_check_chance = 0.8" +
+                                                           " AND default_time_to_live = 100" +
+                                                           " AND compaction = {'class':'SizeTieredCompactionStrategy'} " +
+                                                           " AND compression = { 'class' : 'SnappyCompressor', 'chunk_length_in_kb' : 64 }" +
+                                                           " AND gc_grace_seconds = 1000" +
+                                                           " AND incremental_backups = true" +
+                                                           " AND max_index_interval = 128" +
+                                                           " AND min_index_interval = 16" +
+                                                           " AND speculative_retry = '96p'" +
+                                                           " AND read_repair = 'NONE'" +
+                                                           " AND memtable_flush_period_in_ms = 3600;",
+                                                           tableOtherOptions, sourceKs, targetKs);
+        assertTableMetaEquals(sourceKs, targetKs, tbCompressionDefault1, tableCopyAndSetCompression, false, false, false);
+        assertTableMetaEquals(sourceKs, targetKs, tableCompactionLcs, tableCopyAndSetLCSCompaction, false, false, false);
+        assertTableMetaEquals(sourceKs, targetKs, tableOtherOptions, tableCopyAndSetAllParams, false, false, false);
+        TableParams paramsSetCompression = getTableMetadata(targetKs, tableCopyAndSetCompression).params;
+        TableParams paramsSetLCSCompaction = getTableMetadata(targetKs, tableCopyAndSetLCSCompaction).params;
+        TableParams paramsSetAllParams = getTableMetadata(targetKs, tableCopyAndSetAllParams).params;
+
+        assertEquals(paramsSetCompression, TableParams.builder().compression(CompressionParams.snappy(64 * 1024, 0.0)).build());
+        assertEquals(paramsSetLCSCompaction, TableParams.builder().compaction(CompactionParams.create(LeveledCompactionStrategy.class,
+                                                                                                      Map.of("sstable_size_in_mb", "10",
+                                                                                                             "fanout_size", "16")))
+                                                                  .build());
+        assertEquals(paramsSetAllParams, TableParams.builder().bloomFilterFpChance(0.75)
+                                                              .caching(new CachingParams(false, 10))
+                                                              .cdc(true)
+                                                              .comment("test for create like and set params")
+                                                              .crcCheckChance(0.8)
+                                                              .defaultTimeToLive(100)
+                                                              .compaction(CompactionParams.stcs(Collections.emptyMap()))
+                                                              .compression(CompressionParams.snappy(64 * 1024, 0.0))
+                                                              .gcGraceSeconds(1000)
+                                                              .incrementalBackups(true)
+                                                              .maxIndexInterval(128)
+                                                              .minIndexInterval(16)
+                                                              .speculativeRetry(SpeculativeRetryPolicy.fromString("96PERCENTILE"))
+                                                              .readRepair(ReadRepairStrategy.NONE)
+                                                              .memtableFlushPeriodInMs(3600)
+                                                              .build());
     }
 
     @Test
@@ -304,7 +380,7 @@ public class CreateLikeTest extends CQLTester
     {
         // create with static column
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int , b int , c int static, d int, e list<text>, PRIMARY KEY(a, b));", "tb1");
-        String targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        String targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
         execute("INSERT INTO " + targetKs + "." + targetTb + " (a, b, c, d, e) VALUES (0, 1, 2, 3, ?)", list("1", "2", "3", "4"));
         assertRows(execute("SELECT * FROM " + targetKs + "." + targetTb), row(0, 1, 2, 3, list("1", "2", "3", "4")));
@@ -312,7 +388,7 @@ public class CreateLikeTest extends CQLTester
         //add static column
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int, b int, c text, PRIMARY KEY (a, b))");
         alterTable("ALTER TABLE " + sourceKs + "." + sourceTb + " ADD d  int static");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
     }
 
@@ -322,38 +398,38 @@ public class CreateLikeTest extends CQLTester
         DatabaseDescriptor.setDynamicDataMaskingEnabled(true);
         // Masked partition key
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int MASKED WITH mask_default() PRIMARY KEY, r int)");
-        String targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        String targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Masked partition key component
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k1 int, k2 text MASKED WITH DEFAULT, r int, PRIMARY KEY(k1, k2))");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Masked clustering key
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int, c int MASKED WITH mask_default(), r int, PRIMARY KEY (k, c))");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Masked clustering key with reverse order
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int, c text MASKED WITH mask_default(), r int, PRIMARY KEY (k, c)) " +
                                          "WITH CLUSTERING ORDER BY (c DESC)");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Masked clustering key component
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int, c1 int, c2 text MASKED WITH DEFAULT, r int, PRIMARY KEY (k, c1, c2))");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Masked regular column
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int PRIMARY KEY, r1 text MASKED WITH DEFAULT, r2 int)");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Masked static column
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int, c int, r int, s int STATIC MASKED WITH DEFAULT, PRIMARY KEY (k, c))");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         // Multiple masked columns
@@ -363,7 +439,7 @@ public class CreateLikeTest extends CQLTester
                                          "r1 int, r2 int MASKED WITH DEFAULT, " +
                                          "s1 int static, s2 int static MASKED WITH DEFAULT, " +
                                          "PRIMARY KEY((k1, k2), c1, c2))");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
 
         sourceTb = createTable(sourceKs, "CREATE TABLE %s (k int PRIMARY KEY, " +
@@ -373,12 +449,12 @@ public class CreateLikeTest extends CQLTester
                                          "fs frozen<set<int>> MASKED WITH DEFAULT, " +
                                          "fl frozen<list<int>> MASKED WITH DEFAULT, " +
                                          "fm frozen<map<int, int>> MASKED WITH DEFAULT)");
-        targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb);
     }
 
     @Test
-    public void testUDTTableCopy()
+    public void testUDTTableCopy() throws Throwable
     {
         //normal udt
         String udt = createType(sourceKs, "CREATE TYPE %s (a int, b uuid, c text)");
@@ -393,18 +469,18 @@ public class CreateLikeTest extends CQLTester
 
         if (differentKs)
         {
-            expectedFailure(InvalidRequestException.class, "create table " + targetKs + ".tbudt like " + sourceKs + "." + sourceTbUdt  ,
-                    "Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDT");
-            expectedFailure(InvalidRequestException.class, "create table " + targetKs + ".tbdtset like " + sourceKs + "." + sourceTbUdt  ,
-                    "Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDT");
-            expectedFailure(InvalidRequestException.class, "create table " + targetKs + ".tbudtfrozen like " + sourceKs + "." + sourceTbUdt  ,
-                    "Cannot use CTREATE TABLE LIKE across different keyspace when source table have UDT");
+            assertInvalidThrowMessage("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDT",
+                                      InvalidRequestException.class, "CREATE TABLE " + targetKs + ".tbudt LIKE " + sourceKs + "." + sourceTbUdt);
+            assertInvalidThrowMessage("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDT",
+                                      InvalidRequestException.class, "CREATE TABLE " + targetKs + ".tbdtset LIKE " + sourceKs + "." + sourceTbUdt);
+            assertInvalidThrowMessage("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDT", InvalidRequestException.class,
+                                      "create table " + targetKs + ".tbudtfrozen like " + sourceKs + "." + sourceTbUdt);
         }
         else
         {
-            String targetTbUdt = createTableLike("create table %s like %s", sourceTbUdt, sourceKs, "tbudt", targetKs);
-            String targetTbUdtSet = createTableLike("create table %s like %s", sourceTbUdtSet, sourceKs, "tbdtset", targetKs);
-            String targetTbUdtFrozen = createTableLike("create table %s like %s", sourceTbUdtFrozen, sourceKs, "tbudtfrozen", targetKs);
+            String targetTbUdt = createTableLike("CREATE TABLE %s LIKE %s", sourceTbUdt, sourceKs, "tbudt", targetKs);
+            String targetTbUdtSet = createTableLike("CREATE TABLE %s LIKE %s", sourceTbUdtSet, sourceKs, "tbdtset", targetKs);
+            String targetTbUdtFrozen = createTableLike("CREATE TABLE %s LIKE %s", sourceTbUdtFrozen, sourceKs, "tbudtfrozen", targetKs);
             assertTableMetaEquals(sourceKs, targetKs, sourceTbUdt, targetTbUdt);
             assertTableMetaEquals(sourceKs, targetKs, sourceTbUdtSet, targetTbUdtSet);
             assertTableMetaEquals(sourceKs, targetKs, sourceTbUdtFrozen, targetTbUdtFrozen);
@@ -416,7 +492,7 @@ public class CreateLikeTest extends CQLTester
     {
         // copied table can do index creation
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (id text PRIMARY KEY, val text, num int);");
-        String targetTb = createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        String targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         String saiIndex = createIndex(targetKs, "CREATE INDEX ON %s(val) USING 'sai'");
         execute("INSERT INTO " + targetKs + "." + targetTb + " (id, val, num) VALUES ('1', 'value', 1)");
         assertEquals(1, execute("SELECT id FROM " + targetKs + "." + targetTb + " WHERE val = 'value'").size());
@@ -432,25 +508,38 @@ public class CreateLikeTest extends CQLTester
     {
         String triggerName = "trigger_1";
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a))");
-        String targetTb =  createTableLike("create table %s like %s", sourceTb, sourceKs, targetKs);
+        String targetTb =  createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
         execute("CREATE TRIGGER " + triggerName + " ON " + targetKs + "." + targetTb + " USING '" + CreateTest.TestTrigger.class.getName() + "'");
         assertNotNull(getTableMetadata(targetKs, targetTb).triggers.get(triggerName));
     }
 
     @Test
-    public void testUnSupportedSchema()
+    public void testUnSupportedSchema() throws Throwable
     {
         createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY, b int, c text)", "tb");
         String index = createIndex( "CREATE INDEX ON " + sourceKs + ".tb (c)");
-        expectedFailure(InvalidRequestException.class,
-                "CREATE TABLE " + sourceKs + ".newtb like  " + targetKs + "." + index + ";",
-                "Souce Table '" + targetKs + "'.'" + index + "' doesn't exist");
+        assertInvalidThrowMessage("Souce Table '" + targetKs + "'.'" + index + "' doesn't exist", InvalidRequestException.class,
+                            "CREATE TABLE " + sourceKs + ".newtb LIKE  " + targetKs + "." + index + ";");
 
-        expectedFailure(InvalidRequestException.class,
-                       "CREATE TABLE system.local_clone like system.local ;",
-                       "System keyspace 'system' is not user-modifiable");
-        expectedFailure(InvalidRequestException.class,
-                "CREATE TABLE system_views.newtb like system_views.snapshots ;",
-                "System keyspace 'system_views' is not user-modifiable");
+        assertInvalidThrowMessage("System keyspace 'system' is not user-modifiable", InvalidRequestException.class,
+                                  "CREATE TABLE system.local_clone LIKE system.local ;");
+        assertInvalidThrowMessage("System keyspace 'system_views' is not user-modifiable", InvalidRequestException.class,
+                                  "CREATE TABLE system_views.newtb LIKE system_views.snapshots ;");
+    }
+
+    private void assertTableMetaEquals(String sourceKs, String targetKs, String sourceTb, String targetTb)
+    {
+        assertTableMetaEquals(sourceKs, targetKs, sourceTb, targetTb, true, true, true);
+    }
+
+    private void assertTableMetaEquals(String sourceKs, String targetKs, String sourceTb, String targetTb, boolean compareParams, boolean compareIndexes, boolean compareTrigger)
+    {
+        TableMetadata left = getTableMetadata(sourceKs, sourceTb);
+        TableMetadata right = getTableMetadata(targetKs, targetTb);
+        assertNotNull(left);
+        assertNotNull(right);
+        assertTrue(equalsWithoutTableNameAndDropCns(left, right, compareParams, compareIndexes, compareTrigger));
+        assertNotEquals(left.id, right.id);
+        assertNotEquals(left.name, right.name);
     }
 }

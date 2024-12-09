@@ -716,33 +716,6 @@ public class TableMetadata implements SchemaElement
             && triggers.equals(tm.triggers);
     }
 
-    public boolean equalsWithoutTableNameAndDropCns(TableMetadata tm)
-    {
-        return partitioner.equals(tm.partitioner)
-            && kind == tm.kind
-            && params.equals(tm.params)
-            && flags.equals(tm.flags)
-            && indexes.equals(tm.indexes)
-            && triggers.equals(tm.triggers)
-            && columnsEqualWitoutKsTb(tm);
-    }
-
-    // only compare columns
-    private boolean columnsEqualWitoutKsTb(TableMetadata tm)
-    {
-        if (columns == tm.columns)
-            return true;
-
-        boolean result = true;
-        for (Map.Entry<ByteBuffer, ColumnMetadata> entry : columns.entrySet())
-        {
-            ColumnMetadata thisColumn = entry.getValue();
-            ColumnMetadata thatColumn = tm.columns.get(entry.getKey());
-            result &= thatColumn != null && thisColumn.equalsWithoutKsTb(thatColumn);
-        }
-        return result;
-    }
-
     Optional<Difference> compare(TableMetadata other)
     {
         return equalsWithoutColumns(other)

@@ -152,7 +152,6 @@ import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
-import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.index.SecondaryIndexManager;
@@ -164,6 +163,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.ClientMetrics;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Schema;
@@ -205,10 +205,7 @@ import static org.apache.cassandra.cql3.SchemaElement.SchemaElementType.TABLE;
 import static org.apache.cassandra.cql3.SchemaElement.SchemaElementType.TYPE;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.createMetricsKeyspaceTables;
 import static org.apache.cassandra.schema.SchemaConstants.VIRTUAL_METRICS;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -1082,11 +1079,6 @@ public abstract class CQLTester
         return currentTable;
     }
 
-    protected String createTableLike(String query, String sourceTable)
-    {
-        return createTableLike(query, sourceTable, KEYSPACE, null, KEYSPACE);
-    }
-
     protected String createTableLike(String query, String sourceTable, String sourceKeyspace, String targetKeyspace)
     {
         return createTableLike(query, sourceTable, sourceKeyspace, null, targetKeyspace);
@@ -1096,11 +1088,11 @@ public abstract class CQLTester
     {
         if (!tables.contains(sourceTable))
         {
-            throw new IllegalArgumentException("Source table " + sourceTable + " is not exists");
+            throw new IllegalArgumentException("Source table " + sourceTable + " does not exist");
         }
 
         String currentTable = createTableName(targetTable);
-        String fullQuery = formatQuery(sourceKeyspace, sourceTable, targetKeyspace, query);
+        String fullQuery = currentTable == null ? query : String.format(query, targetKeyspace + "." + currentTable, sourceKeyspace + "." + sourceTable);;
         logger.info(fullQuery);
         schemaChange(fullQuery);
         return currentTable;
@@ -1546,13 +1538,6 @@ public abstract class CQLTester
         }
     }
 
-    protected void expectedFailure(final Class<? extends RequestValidationException> exceptionType, String statement, String errorMsg)
-    {
-
-        assertThatExceptionOfType(exceptionType)
-                .isThrownBy(() -> createTableMayThrow(statement)) .withMessageContaining(errorMsg);
-    }
-
     protected static ResultMessage schemaChange(String query)
     {
         try
@@ -1576,11 +1561,6 @@ public abstract class CQLTester
                 throw new InvalidRequestException(String.format("Error setting schema for test (query was: %s)", query), e);
             throw new RuntimeException("Error setting schema for test (query was: " + query + ")", e);
         }
-    }
-
-    protected TableMetadata getTableMetadata(String table)
-    {
-        return Schema.instance.getTableMetadata(KEYSPACE, table);
     }
 
     protected TableMetadata getTableMetadata(String keyspace, String table)
@@ -1671,12 +1651,6 @@ public abstract class CQLTester
     {
         String currentTable = currentTable();
         return currentTable == null ? query : String.format(query, keyspace + "." + currentTable);
-    }
-
-    protected final String formatQuery(String sourceKeyspace, String sourceTable, String targetKeyspace, String query)
-    {
-        String currentTable = currentTable();
-        return currentTable == null ? query : String.format(query, targetKeyspace + "." + currentTable, sourceKeyspace + "." + sourceTable);
     }
 
     public String formatViewQuery(String query)
@@ -1984,20 +1958,57 @@ public abstract class CQLTester
         return false;
     }
 
-    protected Pair<TableMetadata, TableMetadata> assertTableMetaEquals(String sourceKeyspace, String targetKeyspace, String sourceTable, String targetTable)
+    /**
+     * Determine whether the source and target TableMetadata is equal without compare the table name and dropped columns.
+     * @param source the source TableMetadata
+     * @param target the target TableMetadata
+     * @param compareParams wether compare table params
+     * @param compareIndexes wether compare table's indexes
+     * @param compareTrigger wether compare table's triggers
+     * */
+    protected boolean equalsWithoutTableNameAndDropCns(TableMetadata source, TableMetadata target, boolean compareParams, boolean compareIndexes, boolean compareTrigger)
     {
-        TableMetadata sourceTbMeta = getTableMetadata(sourceKeyspace, sourceTable);
-        TableMetadata targetTbMeta = getTableMetadata(targetKeyspace, targetTable);
-        assertNotNull(sourceTbMeta);
-        assertNotNull(targetTbMeta);
-        assertTrue(sourceTbMeta.equalsWithoutTableNameAndDropCns(targetTbMeta));
-        targetTbMeta.columns().stream().forEach(columnMetadata -> {
-            assertEquals(columnMetadata.ksName, targetKeyspace);
-            assertEquals(columnMetadata.cfName, targetTable);
-        });
-        assertNotEquals(sourceTbMeta.id, targetTbMeta.id);
-        assertNotEquals(sourceTbMeta.name, targetTbMeta.name);
-        return Pair.create(sourceTbMeta, targetTbMeta);
+        return source.partitioner.equals(target.partitioner)
+               && source.kind == target.kind
+               && source.flags.equals(target.flags)
+               && (!compareParams || source.params.equals(target.params))
+               && (!compareIndexes || source.indexes.equals(target.indexes))
+               && (!compareTrigger || source.triggers.equals(target.triggers))
+               && columnsEqualWitoutKsTb(source, target);
+    }
+
+    // only compare columns
+    private boolean columnsEqualWitoutKsTb(TableMetadata source, TableMetadata target)
+    {
+        if (target.columns() == source.columns())
+            return true;
+
+        List<ColumnMetadata> left = source.columns().stream().sorted().collect(Collectors.toList());
+        List<ColumnMetadata> right = target.columns().stream().sorted().collect(Collectors.toList());
+
+        if (left.size() != right.size())
+            return false;
+
+        Iterator<ColumnMetadata> leftIterator = left.iterator();
+        Iterator<ColumnMetadata> rightIterator = right.iterator();
+        while (leftIterator.hasNext() && rightIterator.hasNext())
+        {
+            ColumnMetadata leftCn = leftIterator.next();
+            ColumnMetadata rightCn = rightIterator.next();
+            if (!equalsWithoutKsTb(leftCn, rightCn))
+                return false;
+        }
+
+        return true;
+    }
+
+    private boolean equalsWithoutKsTb(ColumnMetadata left, ColumnMetadata right)
+    {
+        return left.name.equals(right.name)
+               && left.kind == right.kind
+               && left.position() == right.position()
+               && java.util.Objects.equals(left.getMask(), right.getMask())
+               && left.type.equals(right.type);
     }
 
     protected void assertRowCountNet(ResultSet r1, int expectedCount)

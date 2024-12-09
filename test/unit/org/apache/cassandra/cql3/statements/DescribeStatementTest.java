@@ -43,7 +43,6 @@ import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
-import org.apache.cassandra.utils.Pair;
 
 import static java.lang.String.format;
 import static org.apache.cassandra.schema.SchemaConstants.AUTH_KEYSPACE_NAME;
@@ -54,6 +53,7 @@ import static org.apache.cassandra.schema.SchemaConstants.SYSTEM_KEYSPACE_NAME;
 import static org.apache.cassandra.schema.SchemaConstants.TRACE_KEYSPACE_NAME;
 import static org.apache.cassandra.schema.SchemaConstants.VIRTUAL_SCHEMA;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -838,8 +838,14 @@ public class DescribeStatementTest extends CQLTester
                                         "  v1 int, " +
                                         "  v2 int, " +
                                         "PRIMARY KEY ((pk1, pk2), ck1, ck2 ))");
-        String targetTable = createTableLike("create table %s like %s", souceTable, KEYSPACE_PER_TEST, KEYSPACE_PER_TEST);
-        Pair<TableMetadata, TableMetadata> pair = assertTableMetaEquals(KEYSPACE_PER_TEST, KEYSPACE_PER_TEST, souceTable, targetTable);
+        TableMetadata source = getTableMetadata(KEYSPACE_PER_TEST, currentTable());
+        assertNotNull(source);
+        String targetTable = createTableLike("CREATE TABLE %s LIKE %s", souceTable, KEYSPACE_PER_TEST, KEYSPACE_PER_TEST);
+        TableMetadata target = getTableMetadata(KEYSPACE_PER_TEST, currentTable());
+        assertNotNull(target);
+        assertTrue(equalsWithoutTableNameAndDropCns(source, target, true, true, true));
+        assertNotEquals(source.id, target.id);
+        assertNotEquals(source.name, target.name);
 
         String sourceTableCreateStatement = "CREATE TABLE " + KEYSPACE_PER_TEST + "." + souceTable + " (\n" +
                                             "    pk1 text,\n" +
@@ -850,7 +856,7 @@ public class DescribeStatementTest extends CQLTester
                                             "    v1 int,\n" +
                                             "    v2 int,\n" +
                                             "    PRIMARY KEY ((pk1, pk2), ck1, ck2)\n" +
-                                            ") WITH ID = " + pair.left.id + "\n" +
+                                            ") WITH ID = " + source.id + "\n" +
                                             "    AND CLUSTERING ORDER BY (ck1 ASC, ck2 ASC)\n" +
                                             "    AND " + tableParametersCql();
         String targetTableCreateStatement = "CREATE TABLE " + KEYSPACE_PER_TEST + "." + targetTable + " (\n" +
@@ -862,7 +868,7 @@ public class DescribeStatementTest extends CQLTester
                                             "    v1 int,\n" +
                                             "    v2 int,\n" +
                                             "    PRIMARY KEY ((pk1, pk2), ck1, ck2)\n" +
-                                            ") WITH ID = " + pair.right.id + "\n" +
+                                            ") WITH ID = " + target.id + "\n" +
                                             "    AND CLUSTERING ORDER BY (ck1 ASC, ck2 ASC)\n" +
                                             "    AND " + tableParametersCql();
 

@@ -85,11 +85,11 @@ public class CreateTableNonDeterministicTest extends TestBaseImpl
     {
         try (Cluster cluster = init(Cluster.build(2).start()))
         {
-            cluster.schemaChange(withKeyspace("create table %s.sourcetb (k int primary key, v text)"));
+            cluster.schemaChange(withKeyspace("CREATE TABLE %s.sourcetb (k int primary key, v text)"));
             TableId node1id = tableId(cluster.get(1), "sourcetb");
             TableId node2id = tableId(cluster.get(2), "sourcetb");
             assertEquals(node1id, node2id);
-            cluster.schemaChange("create table " + KEYSPACE + ".targettb like " + KEYSPACE + ".sourcetb");
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".targettb LIKE " + KEYSPACE + ".sourcetb");
             TableId node1id2 = tableId(cluster.get(1), "targettb");
             TableId node2id2 = tableId(cluster.get(2), "targettb");
             assertNotEquals(node1id, node1id2);

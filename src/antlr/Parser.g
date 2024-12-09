@@ -815,12 +815,14 @@ tableClusteringOrder[CreateTableStatement.Raw stmt]
     ;
 
 /**
- * CREATE TABLE [IF NOT EXISTS] <NEW_TABLE> LIKE <OLD_TABLE>
+ * CREATE TABLE [IF NOT EXISTS] <NEW_TABLE> LIKE <OLD_TABLE> WITH <property> = <value> AND ...;
  */
 copyTableStatement returns  [CopyTableStatement.Raw stmt]
     @init { boolean ifNotExists = false; }
-    : K_CREATE K_COLUMNFAMILY newCf=columnFamilyName K_LIKE oldCf=columnFamilyName
-      { $stmt = new CopyTableStatement.Raw(newCf, oldCf); }
+    : K_CREATE K_COLUMNFAMILY (K_IF K_NOT K_EXISTS { ifNotExists = true; } )?
+      newCf=columnFamilyName K_LIKE oldCf=columnFamilyName
+      { $stmt = new CopyTableStatement.Raw(newCf, oldCf, ifNotExists); }
+      ( K_WITH property[stmt.attrs] ( K_AND property[stmt.attrs] )*)?
     ;
 
 /**

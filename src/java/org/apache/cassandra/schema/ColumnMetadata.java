@@ -313,15 +313,6 @@ public final class ColumnMetadata extends ColumnSpecification implements Selecta
         return equalsWithoutType(cd) && type.equals(cd.type);
     }
 
-    protected boolean equalsWithoutKsTb(ColumnMetadata other)
-    {
-        return name.equals(other.name)
-            && kind == other.kind
-            && position == other.position
-            && Objects.equals(mask, other.mask)
-            && type.equals(other.type);
-    }
-
     private boolean equalsWithoutType(ColumnMetadata other)
     {
         return name.equals(other.name)

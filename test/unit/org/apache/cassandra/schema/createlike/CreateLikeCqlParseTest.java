@@ -30,10 +30,8 @@ public class CreateLikeCqlParseTest extends CQLTester
 {
     private static final String[] unSupportCqls = new String[]
             {
-                    "create table if not exist ta like tb",
-                    "create table ta (a int primary key, b int) like tb",
-                    "create table ta like tb with comment = 'asss'",
-                    "create table ta like tb with compaction = {'class':'UnifiedCompactionStrategy'}"
+                    "CREATE TABLE ta (a int primary key, b int) LIKE tb",
+                    "CREATE TABLE ta (a int primary key, b int MASKED WITH DEFAULT) LIKE tb",
             };
 
     @Test

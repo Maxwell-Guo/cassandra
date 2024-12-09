@@ -51,14 +51,14 @@ public class CreateLikeWithSessionTest extends CQLTester
 
         // use ks1
         executeNet("use " + ks1);
-        executeNet("CREATE TABLE tb3 like " + tb1);
-        executeNet("CREATE TABLE " + ks1 + ".tb4 like " + tb1);
+        executeNet("CREATE TABLE tb3 LIKE " + tb1);
+        executeNet("CREATE TABLE " + ks1 + ".tb4 LIKE " + tb1);
         executeNet("CREATE TABLE tb5 like " + ks1 + "." + tb1);
 
-        executeNet("CREATE TABLE " + ks2 + ".tb6 like " + tb1);
+        executeNet("CREATE TABLE " + ks2 + ".tb6 LIKE " + tb1);
 
 
-        assertThatExceptionOfType(com.datastax.driver.core.exceptions.InvalidQueryException.class).isThrownBy(() -> executeNet("CREATE TABLE tb7 like " + ks2 + "." + tb1))
+        assertThatExceptionOfType(com.datastax.driver.core.exceptions.InvalidQueryException.class).isThrownBy(() -> executeNet("CREATE TABLE tb7 LIKE " + ks2 + "." + tb1))
                                                                                                   .withMessage("Souce Table 'ks2'.'tb1' doesn't exist");
 
         assertNotNull(getTableMetadata(ks1, tb1));
