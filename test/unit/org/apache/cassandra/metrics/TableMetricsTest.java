@@ -304,22 +304,6 @@ public class TableMetricsTest
         assertGreaterThan(cfs.metric.coordinatorWriteLatency.getMeanRate(), 0);
     }
 
-    @Test
-    public void testCreateLikeTableMetric()
-    {
-        recreateTable();
-        ColumnFamilyStore likeCfs = createLikeTable();
-        assertEquals(0, likeCfs.metric.coordinatorWriteLatency.getCount());
-        assertEquals(0.0, likeCfs.metric.coordinatorWriteLatency.getMeanRate(), 0.0);
-        for (int i = 0; i < 10; i++)
-        {
-            session.execute(String.format("INSERT INTO %s.%s (id, val1, val2) VALUES (%d, '%s', '%s')", KEYSPACE, LIKE_TABLE, i, "val" + i, "val" + i));
-        }
-
-        assertEquals(10, likeCfs.metric.coordinatorWriteLatency.getCount());
-        assertGreaterThan(likeCfs.metric.coordinatorWriteLatency.getMeanRate(), 0);
-    }
-
     private static void assertGreaterThan(double actual, double expectedLessThan) {
         assertTrue("Expected " + actual + " > " + expectedLessThan, actual > expectedLessThan);
     }

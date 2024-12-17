@@ -119,7 +119,9 @@ public final class CopyTableStatement extends AlterSchemaStatement
         if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) && !sourceKeyspaceMeta.types.isEmpty())
             throw ire("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDTs.");
 
-        String sourceCQLString = sourceTableMeta.toCqlString(false, false, true, false);
+        // withInternals can be set to false as it is only used for souce table id, which is not need for target table and the table
+        // id can be set through create table like cql using WITH ID
+        String sourceCQLString = sourceTableMeta.toCqlString(false, false, false, false);
         // add all user functions to be able to give a good error message to the user if the alter references
         // a function from another keyspace
         UserFunctions.Builder ufBuilder = UserFunctions.builder().add();
@@ -135,9 +137,10 @@ public final class CopyTableStatement extends AlterSchemaStatement
                                                                   .triggers(Triggers.none());
 
         TableParams originalParams = targetBuilder.build().params;
-        TableParams newTableParams = attrs.asAlteredTableParams(originalParams);
+        TableParams newTableParams = attrs.asAlteredTableParams(originalParams, true);
+
         TableMetadata table = targetBuilder.params(newTableParams)
-                                           .id(TableId.get(metadata))
+                                           .id(attrs.hasProperty(TableAttributes.ID) ? attrs.getId() : TableId.get(metadata))
                                            .build();
         table.validate();
 

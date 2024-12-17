@@ -67,7 +67,12 @@ public final class TableAttributes extends PropertyDefinitions
 
     TableParams asAlteredTableParams(TableParams previous)
     {
-        if (getId() != null)
+        return asAlteredTableParams(previous, false);
+    }
+
+    TableParams asAlteredTableParams(TableParams previous, boolean setId)
+    {
+        if (!setId && getId() != null)
             throw new ConfigurationException("Cannot alter table id.");
         return build(previous.unbuild());
     }

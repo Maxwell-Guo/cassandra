@@ -28,16 +28,21 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 public class CreateLikeCqlParseTest extends CQLTester
 {
-    private static final String[] unSupportCqls = new String[]
+    // Incorrect use of create table and create table like cql
+    private static final String[] unSupportedCqls = new String[]
             {
-                    "CREATE TABLE ta (a int primary key, b int) LIKE tb",
+                    "CREATE TABLE ta (a int primary key, b int) LIKE tb", // useless column information
                     "CREATE TABLE ta (a int primary key, b int MASKED WITH DEFAULT) LIKE tb",
+                    "CREATE TABLE IF NOT EXISTS LIKE tb", // missing target table
+                    "CREATE TABLE IF NOT EXISTS LIKE tb WITH compression = { 'enabled' : 'false'}",
+                    "CREATE TABLE ta IF NOT EXISTS LIKE ", // missing source table
+                    "CREATE TABLE ta LIKE WITH id = '123-111'"
             };
 
     @Test
-    public void testUnsupportCqlParse()
+    public void testUnsupportedCqlParse()
     {
-        for (String cql : unSupportCqls)
+        for (String cql : unSupportedCqls)
         {
             assertThatExceptionOfType(SyntaxException.class)
                     .isThrownBy(() -> QueryProcessor.parseStatement(cql));

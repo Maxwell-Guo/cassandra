@@ -43,6 +43,8 @@ import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.Indexes;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
@@ -100,7 +102,7 @@ public class CreateLikeTest extends CQLTester
     }
 
     @Test
-    public void testTableShemaCopy()
+    public void testTableSchemaCopy()
     {
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY, b duration, c text);");
         String targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
@@ -178,6 +180,11 @@ public class CreateLikeTest extends CQLTester
                    row(1, "b", 100L, decimal1, set("1", "2"), uuid1, vector1, list(1.1F, 2.2F), timeUuid1, map("k", set(1, 2))));
         assertRows(execute("SELECT * FROM " + targetKs + "." + targetTb),
                    row(2, "nb", 200L, decimal2, set("3", "4"), uuid2, vector2, list(3.3F, 4.4F), timeUuid2, map("nk", set(3, 4))));
+
+        // test that can create a copy of a copied table
+        sourceTb = createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY, b duration, c text);");
+        targetTb = createTableLike("CREATE TABLE %s LIKE %s", sourceTb, sourceKs, targetKs);
+        createTableLike("CREATE TABLE %s LIKE %s", targetTb, targetKs, "newtargettb", sourceKs);
     }
 
     @Test
@@ -373,6 +380,13 @@ public class CreateLikeTest extends CQLTester
                                                               .readRepair(ReadRepairStrategy.NONE)
                                                               .memtableFlushPeriodInMs(3600)
                                                               .build());
+
+        // table id
+        TableId id = TableId.generate();
+        String tbNormal = createTable(sourceKs, "CREATE TABLE %s (a text, b int, c int, primary key (a, b))");
+        String tbLikeNormal = createTableLike("CREATE TABLE %s LIKE %s WITH ID = '" + id + "'" , tbNormal, sourceKs, targetKs);
+        assertTableMetaEquals(sourceKs, targetKs, tbNormal, tbLikeNormal);
+        assertEquals(id, Schema.instance.getTableMetadata(targetKs, tbLikeNormal).id);
     }
 
     @Test
@@ -488,7 +502,7 @@ public class CreateLikeTest extends CQLTester
     }
 
     @Test
-    public void testIndexOpreationOnCopiedTable()
+    public void testIndexOperationOnCopiedTable()
     {
         // copied table can do index creation
         String sourceTb = createTable(sourceKs, "CREATE TABLE %s (id text PRIMARY KEY, val text, num int);");
@@ -497,10 +511,10 @@ public class CreateLikeTest extends CQLTester
         execute("INSERT INTO " + targetKs + "." + targetTb + " (id, val, num) VALUES ('1', 'value', 1)");
         assertEquals(1, execute("SELECT id FROM " + targetKs + "." + targetTb + " WHERE val = 'value'").size());
         String normalIndex = createIndex(targetKs, "CREATE INDEX ON %s(num)");
-        Indexes taegetiIndexes = getTableMetadata(targetKs, targetTb).indexes;
-        assertEquals(taegetiIndexes.size(), 2);
-        assertNotNull(taegetiIndexes.get(saiIndex));
-        assertNotNull(taegetiIndexes.get(normalIndex));
+        Indexes targetIndexes = getTableMetadata(targetKs, targetTb).indexes;
+        assertEquals(targetIndexes.size(), 2);
+        assertNotNull(targetIndexes.get(saiIndex));
+        assertNotNull(targetIndexes.get(normalIndex));
     }
 
     @Test
