@@ -75,13 +75,6 @@ public class TableMetricsTest
         return recreateTable(TABLE);
     }
 
-    private ColumnFamilyStore createLikeTable()
-    {
-        session.execute(String.format("DROP TABLE IF EXISTS %s.%s", KEYSPACE, LIKE_TABLE));
-        session.execute(String.format("CREATE TABLE %s.%s Like %s.%s ;", KEYSPACE, LIKE_TABLE, KEYSPACE, TABLE));
-        return ColumnFamilyStore.getIfExists(KEYSPACE, LIKE_TABLE);
-    }
-
     private ColumnFamilyStore recreateTWCSTable()
     {
         session.execute(String.format("DROP TABLE IF EXISTS %s.%s", KEYSPACE, TWCS_TABLE));

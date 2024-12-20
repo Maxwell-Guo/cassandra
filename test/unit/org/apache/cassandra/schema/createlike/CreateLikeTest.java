@@ -38,12 +38,12 @@ import org.apache.cassandra.cql3.validation.operations.CreateTest;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.compaction.LeveledCompactionStrategy;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.Indexes;
-import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
@@ -62,7 +62,6 @@ public class CreateLikeTest extends CQLTester
     @Parameterized.Parameter
     public boolean differentKs;
 
-    //todo support other parameter like indexs/trigger/all options copy
     @Parameterized.Parameters(name = "{index}: differentKs={0}")
     public static Collection<Object[]> data()
     {
@@ -247,7 +246,7 @@ public class CreateLikeTest extends CQLTester
     }
 
     @Test
-    public void testTableOptionsCopy()
+    public void testTableOptionsCopy() throws Throwable
     {
         // compression
         String tbCompressionDefault1 = createTable(sourceKs, "CREATE TABLE %s (a text, b int, c int, primary key (a, b))");
@@ -384,9 +383,8 @@ public class CreateLikeTest extends CQLTester
         // table id
         TableId id = TableId.generate();
         String tbNormal = createTable(sourceKs, "CREATE TABLE %s (a text, b int, c int, primary key (a, b))");
-        String tbLikeNormal = createTableLike("CREATE TABLE %s LIKE %s WITH ID = '" + id + "'" , tbNormal, sourceKs, targetKs);
-        assertTableMetaEquals(sourceKs, targetKs, tbNormal, tbLikeNormal);
-        assertEquals(id, Schema.instance.getTableMetadata(targetKs, tbLikeNormal).id);
+        assertInvalidThrowMessage("Cannot alter table id.", ConfigurationException.class,
+                                  "CREATE TABLE " + targetKs + ".targetnormal LIKE " +  sourceKs + "." + tbNormal + " WITH ID = " + id);
     }
 
     @Test
@@ -488,7 +486,7 @@ public class CreateLikeTest extends CQLTester
             assertInvalidThrowMessage("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDT",
                                       InvalidRequestException.class, "CREATE TABLE " + targetKs + ".tbdtset LIKE " + sourceKs + "." + sourceTbUdt);
             assertInvalidThrowMessage("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDT", InvalidRequestException.class,
-                                      "create table " + targetKs + ".tbudtfrozen like " + sourceKs + "." + sourceTbUdt);
+                                      "CREATE TABLE " + targetKs + ".tbudtfrozen LIKE " + sourceKs + "." + sourceTbUdt);
         }
         else
         {
@@ -532,7 +530,7 @@ public class CreateLikeTest extends CQLTester
     {
         createTable(sourceKs, "CREATE TABLE %s (a int PRIMARY KEY, b int, c text)", "tb");
         String index = createIndex( "CREATE INDEX ON " + sourceKs + ".tb (c)");
-        assertInvalidThrowMessage("Souce Table '" + targetKs + "'.'" + index + "' doesn't exist", InvalidRequestException.class,
+        assertInvalidThrowMessage("Souce Table '" + targetKs + "." + index + "' doesn't exist", InvalidRequestException.class,
                             "CREATE TABLE " + sourceKs + ".newtb LIKE  " + targetKs + "." + index + ";");
 
         assertInvalidThrowMessage("System keyspace 'system' is not user-modifiable", InvalidRequestException.class,

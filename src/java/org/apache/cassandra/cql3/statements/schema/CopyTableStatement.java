@@ -90,19 +90,20 @@ public final class CopyTableStatement extends AlterSchemaStatement
     {
         Keyspaces schema = metadata.schema.getKeyspaces();
         KeyspaceMetadata sourceKeyspaceMeta = schema.getNullable(sourceKeyspace);
-        TableMetadata sourceTableMeta = sourceKeyspaceMeta.getTableNullable(sourceTableName);
 
         if (null == sourceKeyspaceMeta)
             throw ire("Source Keyspace '%s' doesn't exist", sourceKeyspace);
 
+        TableMetadata sourceTableMeta = sourceKeyspaceMeta.getTableNullable(sourceTableName);
+
         if (null == sourceTableMeta)
-            throw ire("Souce Table '%s'.'%s' doesn't exist", sourceKeyspace, sourceTableName);
+            throw ire("Souce Table '%s.%s' doesn't exist", sourceKeyspace, sourceTableName);
 
         if (sourceTableMeta.isIndex())
-            throw ire("Cannot use CREATE TABLE LIKE on a index table '%s'.'%s'.", sourceKeyspace, sourceTableName);
+            throw ire("Cannot use CREATE TABLE LIKE on an index table '%s.%s'.", sourceKeyspace, sourceTableName);
 
         if (sourceTableMeta.isView())
-            throw ire("Cannot use CREATE TABLE LIKE on a materialized view '%s'.'%s'.", sourceKeyspace, sourceTableName);
+            throw ire("Cannot use CREATE TABLE LIKE on a materialized view '%s.%s'.", sourceKeyspace, sourceTableName);
 
         KeyspaceMetadata targetKeyspaceMeta = schema.getNullable(targetKeyspace);
         if (null == targetKeyspaceMeta)
@@ -116,31 +117,26 @@ public final class CopyTableStatement extends AlterSchemaStatement
             throw new AlreadyExistsException(targetKeyspace, targetTableName);
         }
         // todo support udt for differenet ks latter
-        if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) && !sourceKeyspaceMeta.types.isEmpty())
+        if (!sourceKeyspace.equalsIgnoreCase(targetKeyspace) && !sourceTableMeta.getReferencedUserTypes().isEmpty())
             throw ire("Cannot use CREATE TABLE LIKE across different keyspace when source table have UDTs.");
 
         // withInternals can be set to false as it is only used for souce table id, which is not need for target table and the table
         // id can be set through create table like cql using WITH ID
         String sourceCQLString = sourceTableMeta.toCqlString(false, false, false, false);
-        // add all user functions to be able to give a good error message to the user if the alter references
-        // a function from another keyspace
-        UserFunctions.Builder ufBuilder = UserFunctions.builder().add();
-        for (KeyspaceMetadata ksm : schema)
-            ufBuilder.add(ksm.userFunctions);
 
         TableMetadata.Builder targetBuilder = CreateTableStatement.parse(sourceCQLString,
                                                                          targetKeyspace,
                                                                          targetTableName,
                                                                          sourceKeyspaceMeta.types,
-                                                                         ufBuilder.build())
+                                                                         UserFunctions.none())
                                                                   .indexes(Indexes.none())
                                                                   .triggers(Triggers.none());
 
         TableParams originalParams = targetBuilder.build().params;
-        TableParams newTableParams = attrs.asAlteredTableParams(originalParams, true);
+        TableParams newTableParams = attrs.asAlteredTableParams(originalParams);
 
         TableMetadata table = targetBuilder.params(newTableParams)
-                                           .id(attrs.hasProperty(TableAttributes.ID) ? attrs.getId() : TableId.get(metadata))
+                                           .id(TableId.get(metadata))
                                            .build();
         table.validate();
 

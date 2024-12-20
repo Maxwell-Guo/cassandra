@@ -1980,17 +1980,12 @@ public abstract class CQLTester
     // only compare columns
     private boolean columnsEqualWitoutKsTb(TableMetadata source, TableMetadata target)
     {
-        if (target.columns() == source.columns())
-            return true;
-
-        List<ColumnMetadata> left = source.columns().stream().sorted().collect(Collectors.toList());
-        List<ColumnMetadata> right = target.columns().stream().sorted().collect(Collectors.toList());
-
-        if (left.size() != right.size())
+        if (target.columns().size() != source.columns().size())
             return false;
 
-        Iterator<ColumnMetadata> leftIterator = left.iterator();
-        Iterator<ColumnMetadata> rightIterator = right.iterator();
+        Iterator<ColumnMetadata> leftIterator = source.allColumnsInCreateOrder();
+        Iterator<ColumnMetadata> rightIterator = target.allColumnsInCreateOrder();
+
         while (leftIterator.hasNext() && rightIterator.hasNext())
         {
             ColumnMetadata leftCn = leftIterator.next();
