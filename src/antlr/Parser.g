@@ -823,6 +823,15 @@ copyTableStatement returns  [CopyTableStatement.Raw stmt]
       newCf=columnFamilyName K_LIKE oldCf=columnFamilyName
       { $stmt = new CopyTableStatement.Raw(newCf, oldCf, ifNotExists); }
       ( K_WITH property[stmt.attrs] ( K_AND property[stmt.attrs] )*)?
+      tableLikeOptions[stmt]
+    ;
+
+tableLikeOptions[CopyTableStatement.Raw stmt]
+    : ( K_WITH tableLikeSingleOption[stmt] ( K_AND tableLikeSingleOption[stmt] )*)?
+    ;
+
+tableLikeSingleOption[CopyTableStatement.Raw stmt]
+    : option=STRING_LITERAL { $stmt.extendWithLikeOptions($option.text); }
     ;
 
 /**

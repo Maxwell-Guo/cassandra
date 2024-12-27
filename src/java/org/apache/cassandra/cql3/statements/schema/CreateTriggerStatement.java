@@ -19,7 +19,9 @@ package org.apache.cassandra.cql3.statements.schema;
 
 import org.apache.cassandra.audit.AuditLogContext;
 import org.apache.cassandra.audit.AuditLogEntryType;
+import org.apache.cassandra.cql3.CQLFragmentParser;
 import org.apache.cassandra.cql3.CQLStatement;
+import org.apache.cassandra.cql3.CqlParser;
 import org.apache.cassandra.cql3.QualifiedName;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.*;
@@ -102,6 +104,28 @@ public final class CreateTriggerStatement extends AlterSchemaStatement
         return new AuditLogContext(AuditLogEntryType.CREATE_TRIGGER, keyspaceName, triggerName);
     }
 
+    public static TriggerMetadata parse(String cql, String keyspace, String table, String trigger)
+    {
+        Raw createTrigger = CQLFragmentParser.parseAny(CqlParser::createTriggerStatement, cql, "CREATE TRIGGER")
+                                             .keyspace(keyspace);
+        if (table != null)
+            createTrigger.table(table);
+
+        try
+        {
+            TriggerExecutor.instance.loadTriggerClass(createTrigger.triggerClass);
+        }
+        catch (Exception e)
+        {
+            InvalidRequestException thrown = ire("Trigger class '%s' couldn't be loaded", createTrigger.triggerClass);
+            thrown.initCause(e);
+            throw thrown;
+        }
+
+        return TriggerMetadata.create(trigger, createTrigger.triggerClass);
+    }
+
+
     public String toString()
     {
         return String.format("%s (%s, %s)", getClass().getSimpleName(), keyspaceName, triggerName);
@@ -120,6 +144,18 @@ public final class CreateTriggerStatement extends AlterSchemaStatement
             this.triggerName = triggerName;
             this.triggerClass = triggerClass;
             this.ifNotExists = ifNotExists;
+        }
+
+        public Raw keyspace(String keyspace)
+        {
+            tableName.setKeyspace(keyspace, true);
+            return this;
+        }
+
+        public Raw table(String table)
+        {
+            tableName.setName(table, true);
+            return this;
         }
 
         public CreateTriggerStatement prepare(ClientState state)

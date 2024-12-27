@@ -219,6 +219,16 @@ public final class CreateIndexStatement extends AlterSchemaStatement
         return ImmutableSet.of();
     }
 
+    public IndexAttributes getAttrs()
+    {
+        return attrs;
+    }
+
+    public List<IndexTarget.Raw> getRawIndexTargets()
+    {
+        return rawIndexTargets;
+    }
+
     private void validateIndexTarget(TableMetadata table, IndexMetadata.Kind kind, IndexTarget target)
     {
         ColumnMetadata column = table.getColumn(target.column);
@@ -321,6 +331,25 @@ public final class CreateIndexStatement extends AlterSchemaStatement
             this.rawIndexTargets = rawIndexTargets;
             this.attrs = attrs;
             this.ifNotExists = ifNotExists;
+        }
+
+        public Raw keyspace(String keyspace)
+        {
+            tableName.setKeyspace(keyspace, true);
+            indexName.setKeyspace(keyspace, true);
+            return this;
+        }
+
+        public Raw table(String table)
+        {
+            tableName.setName(table, true);
+            return this;
+        }
+
+        public Raw index(String index)
+        {
+            indexName.setName(index, true);
+            return this;
         }
 
         public CreateIndexStatement prepare(ClientState state)

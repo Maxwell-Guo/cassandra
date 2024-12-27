@@ -23,6 +23,7 @@ import java.io.IOException;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
+import org.apache.cassandra.cql3.CqlBuilder;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.tcm.serialization.MetadataSerializer;
@@ -79,6 +80,37 @@ public final class TriggerMetadata
                           .add("name", name)
                           .add("class", classOption)
                           .toString();
+    }
+
+    public String toCqlString(TableMetadata table, boolean ifNotExists)
+    {
+        CqlBuilder builder = new CqlBuilder();
+        appendCqlTo(builder, table, ifNotExists);
+        return builder.toString();
+    }
+
+    /**
+     * Appends to the specified builder the CQL used to create this trigger.
+     * @param builder the builder to which the CQL myst be appended
+     * @param table the parent table
+     * @param ifNotExists includes "IF NOT EXISTS" into statement
+     */
+    public void appendCqlTo(CqlBuilder builder, TableMetadata table, boolean ifNotExists)
+    {
+        builder.append("CREATE TRIGGER ");
+
+        if (ifNotExists)
+        {
+            builder.append("IF NOT EXISTS ");
+        }
+
+        builder.appendQuotingIfNeeded(name)
+               .append(" ON ")
+               .append(table.toString())
+               .append(" USING '")
+               .append(classOption)
+               .append("'")
+               .append(";");
     }
 
     public static class Serializer implements MetadataSerializer<TriggerMetadata>
