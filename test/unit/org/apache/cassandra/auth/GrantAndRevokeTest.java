@@ -404,6 +404,20 @@ public class GrantAndRevokeTest extends CQLTester
         assertWarningsContain(res.getExecutionInfo().getWarnings(), "Role '" + user + "' was not granted SELECT on <table ks1.sourcetb>");
 
         useUser(user, pass);
+        // Spin assert for effective auth changes.
+        Util.spinAssertEquals(false, () -> {
+            try
+            {
+                assertUnauthorizedQuery("User user has no SELECT permission on <table ks1.sourcetb> or any of its parents",
+                        formatQuery("SELECT * FROM ks1.sourcetb LIMIT 1"));
+            }
+            catch(Throwable e)
+            {
+                return true;
+            }
+            return false;
+        }, 10);
+
         assertUnauthorizedQuery("User user has no SELECT permission on <table ks1.sourcetb> or any of its parents",
                                 "CREATE TABLE ks1.targetTb LIKE ks1.sourcetb");
 
@@ -414,6 +428,19 @@ public class GrantAndRevokeTest extends CQLTester
         assertWarningsContain(res.getExecutionInfo().getWarnings(), "Role '" + user + "' was not granted CREATE on <keyspace ks1>");
 
         useUser(user, pass);
+        Util.spinAssertEquals(false, () -> {
+            try
+            {
+                assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ks1> or any of its parents",
+                        formatQuery("CREATE TABLE ks1.targetTb LIKE ks1.sourcetb"));
+            }
+            catch(Throwable e)
+            {
+                return true;
+            }
+            return false;
+        }, 10);
+
         assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ks1> or any of its parents",
                                 "CREATE TABLE ks1.targetTb LIKE ks1.sourcetb");
 
@@ -425,6 +452,19 @@ public class GrantAndRevokeTest extends CQLTester
         assertWarningsContain(res.getExecutionInfo().getWarnings(), "Role '" + user + "' was not granted CREATE on <keyspace ks2>");
 
         useUser(user, pass);
+        Util.spinAssertEquals(false, () -> {
+            try
+            {
+                assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ks2> or any of its parents",
+                        formatQuery("CREATE TABLE ks2.targetTb LIKE ks1.sourcetb"));
+            }
+            catch(Throwable e)
+            {
+                return true;
+            }
+            return false;
+        }, 10);
+
         assertUnauthorizedQuery("User user has no CREATE permission on <all tables in ks2> or any of its parents",
                                 "CREATE TABLE ks2.targetTb LIKE ks1.sourcetb");
 

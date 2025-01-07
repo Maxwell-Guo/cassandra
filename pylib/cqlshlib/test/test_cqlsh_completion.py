@@ -625,7 +625,7 @@ class TestCqlshCompletion(CqlshCompletionCase):
         self.trycompletions(prefix + quoted_keyspace + '.',
                             choices=['<new_table_name>'])
         self.trycompletions(prefix + quoted_keyspace + '.new_table ',
-                            immediate='( ')
+                            choices=['(', 'LIKE'])
         self.trycompletions(prefix + quoted_keyspace + '.new_table ( ',
                             choices=['<new_column_name>', '<identifier>',
                                      '<quotedName>'])
@@ -796,8 +796,6 @@ class TestCqlshCompletion(CqlshCompletionCase):
                             choices=['<new_table_name>'])
         self.trycompletions('CREATE TABLE ' + quoted_keyspace + '.new_table L',
                             immediate='IKE ')
-        self.trycompletions('CREATE TABLE ' + 'new_table LIKE old_table ',
-                            choices=['.', ';', 'WITH'])
         self.trycompletions('CREATE TABLE ' + 'new_table LIKE old_table W',
                             immediate='ITH ')
         self.trycompletions('CREATE TABLE ' + 'new_table LIKE old_table WITH ',
