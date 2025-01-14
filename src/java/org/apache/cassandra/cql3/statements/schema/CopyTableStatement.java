@@ -24,10 +24,13 @@ import org.apache.cassandra.auth.Permission;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QualifiedName;
 import org.apache.cassandra.db.guardrails.Guardrails;
+import org.apache.cassandra.db.marshal.VectorType;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
 import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Keyspaces;
+import org.apache.cassandra.schema.MemtableParams;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
@@ -86,6 +89,30 @@ public final class CopyTableStatement extends AlterSchemaStatement
     }
 
     @Override
+    public void validate(ClientState state)
+    {
+        super.validate(state);
+
+        // If a memtable configuration is specified, validate it against config
+        if (attrs.hasOption(TableParams.Option.MEMTABLE))
+            MemtableParams.get(attrs.getString(TableParams.Option.MEMTABLE.toString()));
+
+        // Guardrail on table properties
+        Guardrails.tableProperties.guard(attrs.updatedProperties(), attrs::removeProperty, state);
+
+        // Guardrail on number of tables
+        if (Guardrails.tables.enabled(state))
+        {
+            int totalUserTables = Schema.instance.getUserKeyspaces()
+                                                 .stream()
+                                                 .mapToInt(ksm -> ksm.tables.size())
+                                                 .sum();
+            Guardrails.tables.guard(totalUserTables + 1, targetTableName, false, state);
+        }
+        validateDefaultTimeToLive(attrs.asNewTableParams());
+    }
+
+    @Override
     public Keyspaces apply(ClusterMetadata metadata)
     {
         Keyspaces schema = metadata.schema.getKeyspaces();
@@ -104,6 +131,18 @@ public final class CopyTableStatement extends AlterSchemaStatement
 
         if (sourceTableMeta.isView())
             throw ire("Cannot use CREATE TABLE LIKE on a materialized view '%s.%s'.", sourceKeyspace, sourceTableName);
+
+        // Guardrail on columns per table
+        Guardrails.columnsPerTable.guard(sourceTableMeta.columns().size(), targetTableName, false, state);
+
+        sourceTableMeta.columns().forEach(columnMetadata -> {
+            if (columnMetadata.type.isVector())
+            {
+                Guardrails.vectorTypeEnabled.ensureEnabled(columnMetadata.name.toString(), state);
+                int dimensions = ((VectorType)columnMetadata.type).dimension;
+                Guardrails.vectorDimensions.guard(dimensions, columnMetadata.name.toString(), false, state);
+            }
+        });
 
         KeyspaceMetadata targetKeyspaceMeta = schema.getNullable(targetKeyspace);
         if (null == targetKeyspaceMeta)
@@ -145,6 +184,10 @@ public final class CopyTableStatement extends AlterSchemaStatement
         {
             throw ire("read_repair must be set to 'NONE' for transiently replicated keyspaces");
         }
+
+        // Guardrail to check whether creation of new COMPACT STORAGE tables is allowed
+        if (sourceTableMeta.isCompactTable())
+            Guardrails.compactTablesEnabled.ensureEnabled(state);
 
         if (!table.params.compression.isEnabled())
             Guardrails.uncompressedTablesEnabled.ensureEnabled(state);
