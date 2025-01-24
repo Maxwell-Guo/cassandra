@@ -12,3 +12,6 @@ CREATE TABLE newtb3 LIKE oldtb WITH compaction = { 'class' : 'LeveledCompactionS
                                AND compression = { 'class' : 'SnappyCompressor', 'chunk_length_in_kb' : 32 }
                                AND cdc = true;
 
+CREATE TABLE newtb4 LIKE oldtb WITH INDEX;
+
+CREATE TABLE newtb6 LIKE oldtb WITH INDEX AND compaction = { 'class' : 'LeveledCompactionStrategy' };
