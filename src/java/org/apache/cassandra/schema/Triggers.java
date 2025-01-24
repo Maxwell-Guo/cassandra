@@ -20,6 +20,7 @@ package org.apache.cassandra.schema;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.Set;
 
 import com.google.common.collect.ImmutableMap;
 

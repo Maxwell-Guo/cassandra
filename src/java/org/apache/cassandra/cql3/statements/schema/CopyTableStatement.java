@@ -35,6 +35,7 @@ import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.db.marshal.VectorType;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
+import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Keyspaces;
@@ -43,12 +44,18 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
+import org.apache.cassandra.schema.TriggerMetadata;
 import org.apache.cassandra.schema.Triggers;
 import org.apache.cassandra.schema.UserFunctions;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.reads.repair.ReadRepairStrategy;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.transport.Event.SchemaChange;
+
+import static org.apache.cassandra.cql3.statements.schema.CopyTableStatement.CreateLikeOption.ALL;
+import static org.apache.cassandra.cql3.statements.schema.CopyTableStatement.CreateLikeOption.INDEXES;
+import static org.apache.cassandra.cql3.statements.schema.CopyTableStatement.CreateLikeOption.TRIGGERS;
+import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 
 /**
  * {@code CREATE TABLE [IF NOT EXISTS] <newtable> LIKE <oldtable> WITH <property> = <value>}
@@ -61,12 +68,14 @@ public final class CopyTableStatement extends AlterSchemaStatement
     private final String targetTableName;
     private final boolean ifNotExists;
     private final TableAttributes attrs;
+    private final Set<CreateLikeOption> createLikeOptions;
 
     public CopyTableStatement(String sourceKeyspace,
                               String targetKeyspace,
                               String sourceTableName,
                               String targetTableName,
                               boolean ifNotExists,
+                              Set<CreateLikeOption> createLikeOptions,
                               TableAttributes attrs)
     {
         super(targetKeyspace);
@@ -75,6 +84,7 @@ public final class CopyTableStatement extends AlterSchemaStatement
         this.sourceTableName = sourceTableName;
         this.targetTableName = targetTableName;
         this.ifNotExists = ifNotExists;
+        this.createLikeOptions = createLikeOptions;
         this.attrs = attrs;
     }
 
@@ -196,6 +206,7 @@ public final class CopyTableStatement extends AlterSchemaStatement
 
         TableParams originalParams = targetBuilder.build().params;
         TableParams newTableParams = attrs.asAlteredTableParams(originalParams);
+        cloneIndexesAndTriggersIfNeeded(targetBuilder, sourceTableMeta, targetKeyspace, targetTableName);
 
         TableMetadata table = targetBuilder.params(newTableParams)
                                            .id(TableId.get(metadata))
@@ -227,6 +238,45 @@ public final class CopyTableStatement extends AlterSchemaStatement
             Guardrails.tables.guard(totalUserTables + 1, targetTableName, false, state);
         }
         validateDefaultTimeToLive(attrs.asNewTableParams());
+
+        if (createLikeOptions.contains(ALL) && createLikeOptions.size() > 1)
+        {
+            throw ire("It is not allowed to use ALL option together with " + createLikeOptions.remove(ALL));
+        }
+    }
+
+    private void cloneIndexesAndTriggersIfNeeded(TableMetadata.Builder builder, TableMetadata sourceTableMeta, String targetKeyspace, String targetTableName)
+    {
+        if (createLikeOptions.contains(INDEXES) ||
+            createLikeOptions.contains(ALL))
+        {
+            Indexes.Builder idxBuilder = Indexes.builder();
+            for (IndexMetadata indexMetadata : sourceTableMeta.indexes)
+            {
+                // todo use source index name if target keyspace don't have same index name but use random name now as cep-43 described
+                String idxName = generateRandomName(targetKeyspace, targetTableName, indexMetadata.name) ;
+                idxBuilder.add(IndexMetadata.fromSchemaMetadata(idxName, indexMetadata.kind, indexMetadata.options));
+            }
+            builder.indexes(idxBuilder.build());
+        }
+
+        if (createLikeOptions.contains(TRIGGERS) ||
+            createLikeOptions.contains(ALL))
+        {
+            Triggers.Builder triggerBuilder = Triggers.builder();
+            for (TriggerMetadata triggerMetadata : sourceTableMeta.triggers)
+            {
+                // todo use source trigger name if target keyspace don't have same trigger name but use random name now as cep-43 described
+                String triggerName = generateRandomName(targetKeyspace, targetTableName, triggerMetadata.name);
+                triggerBuilder.add(new TriggerMetadata(triggerName, triggerMetadata.classOption));
+            }
+            builder.triggers(triggerBuilder.build());
+        }
+    }
+
+    private String generateRandomName(String keyspace, String table, String name)
+    {
+        return keyspace + "_" + table + "_" + name + "_" + nextTimeUUID().asUUID();
     }
 
     public final static class Raw extends CQLStatement.Raw
@@ -234,6 +284,7 @@ public final class CopyTableStatement extends AlterSchemaStatement
         private final QualifiedName oldName;
         private final QualifiedName newName;
         private final boolean ifNotExists;
+        private final Set<CreateLikeOption> createLikeOptions = Sets.newHashSet();
         public final TableAttributes attrs = new TableAttributes();
 
         public Raw(QualifiedName newName, QualifiedName oldName, boolean ifNotExists)
@@ -248,7 +299,26 @@ public final class CopyTableStatement extends AlterSchemaStatement
         {
             String oldKeyspace = oldName.hasKeyspace() ? oldName.getKeyspace() : state.getKeyspace();
             String newKeyspace = newName.hasKeyspace() ? newName.getKeyspace() : state.getKeyspace();
-            return new CopyTableStatement(oldKeyspace, newKeyspace, oldName.getName(), newName.getName(), ifNotExists, attrs);
+            return new CopyTableStatement(oldKeyspace, newKeyspace, oldName.getName(), newName.getName(), ifNotExists, createLikeOptions, attrs);
+        }
+
+        public void extendWithLikeOptions(String likeOption)
+        {
+            assert likeOption != null && !likeOption.isEmpty() : "CREATE TABLE LIKE WITH null or empty create like option.";
+            this.createLikeOptions.add(CreateLikeOption.valueOf(likeOption));
+        }
+    }
+
+    public enum CreateLikeOption
+    {
+        ALL("ALL"),
+        INDEXES("INDEXES"),
+        TRIGGERS("TRIGGERS");
+
+        private final String value;
+        CreateLikeOption(String value)
+        {
+            this.value = value;
         }
     }
 }

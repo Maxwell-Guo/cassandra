@@ -166,11 +166,14 @@ import org.apache.cassandra.metrics.ClientMetrics;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
+import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TriggerMetadata;
+import org.apache.cassandra.schema.Triggers;
 import org.apache.cassandra.serializers.TypeSerializer;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
@@ -1095,7 +1098,7 @@ public abstract class CQLTester
         }
 
         String currentTable = createTableName(targetTable);
-        String fullQuery = currentTable == null ? query : String.format(query, targetKeyspace + "." + currentTable, sourceKeyspace + "." + sourceTable);;
+        String fullQuery = currentTable == null ? query : String.format(query, targetKeyspace + "." + currentTable, sourceKeyspace + "." + sourceTable);
         logger.info(fullQuery);
         schemaChange(fullQuery);
         return currentTable;
@@ -1119,6 +1122,15 @@ public abstract class CQLTester
         String fullQuery = formatQuery(query);
         logger.info(fullQuery);
         QueryProcessor.executeOnceInternal(fullQuery);
+    }
+
+    protected String createTrigger(String keyspace, String table, String triggerName, String query)
+    {
+        String currentTable = createTableName(table);
+        String fullQuery = currentTable == null ? query : String.format(query, triggerName, keyspace + "." + currentTable);
+        logger.info(fullQuery);
+        schemaChange(fullQuery);
+        return triggerName;
     }
 
     /**
@@ -1969,22 +1981,62 @@ public abstract class CQLTester
     }
 
     /**
-     * Determine whether the source and target TableMetadata is equal without compare the table name and dropped columns.
+     * Determine whether the source and target TableMetadata is equal without compare the table name and dropped columns, and
+     * compare the indexes and triggers of the source and target tables, but do not compare their names.
      * @param source the source TableMetadata
      * @param target the target TableMetadata
      * @param compareParams wether compare table params
-     * @param compareIndexes wether compare table's indexes
-     * @param compareTrigger wether compare table's triggers
      * */
-    protected boolean equalsWithoutTableNameAndDropCns(TableMetadata source, TableMetadata target, boolean compareParams, boolean compareIndexes, boolean compareTrigger)
+    protected boolean equalsWithoutTableNameAndDropCns(TableMetadata source, TableMetadata target, boolean compareParams)
     {
         return source.partitioner.equals(target.partitioner)
                && source.kind == target.kind
                && source.flags.equals(target.flags)
                && (!compareParams || source.params.equals(target.params))
-               && (!compareIndexes || source.indexes.equals(target.indexes))
-               && (!compareTrigger || source.triggers.equals(target.triggers))
+               && indexesAndTriggerEqualWithoutName(source.indexes, target.indexes, source.triggers, target.triggers, target.keyspace, target.name)
                && columnsEqualWitoutKsTb(source, target);
+    }
+
+    /**
+     * Compare the source table and target table's indexes and triggers without compare their name,
+     * because the names of the target indexes and triggers are randomly genrated base on the source
+     * table name and source keyspace name with the rule : target keyspace name + "_" + target table name
+     * + "_" + source index or trigger name + "_" + uuid.
+     * see {@link org.apache.cassandra.cql3.statements.schema.CopyTableStatement#generateRandomName(String, String, String)}
+     * for more detail.
+     * */
+    private boolean indexesAndTriggerEqualWithoutName(Indexes sourceIdxes, Indexes targetIdxes, Triggers sourceTriggers, Triggers targetTriggers, String targetKs, String targetTb)
+    {
+        if (sourceIdxes.size() != targetIdxes.size())
+            return false;
+        if (sourceTriggers.size() != targetTriggers.size())
+            return false;
+
+        boolean match = true;
+        for (IndexMetadata sourceIndexMetadata : sourceIdxes)
+        {
+            for (IndexMetadata targetIndexMetada : targetIdxes)
+            {
+                // target index name must have one with the format : targetks_targetTb_sourceIndexName_uuid
+                if (targetIndexMetada.name.contains(targetKs + "_" + targetTb + "_" + sourceIndexMetadata.name))
+                {
+                    match &= sourceIndexMetadata.options.equals(targetIndexMetada.options);
+                }
+            }
+        }
+
+        for (TriggerMetadata sourceTriggerMetaData : sourceTriggers)
+        {
+            for (TriggerMetadata targetTriggerMetaData : targetTriggers)
+            {
+                // target trigger name must have one with the format : targetks_targetTb_sourceTriggerName_uuid
+                if (targetTriggerMetaData.name.contains(targetKs + "_" + targetTb + "_" + sourceTriggerMetaData.name))
+                {
+                    match &= sourceTriggerMetaData.classOption.equals(targetTriggerMetaData.classOption);
+                }
+            }
+        }
+        return match;
     }
 
     // only compare columns
