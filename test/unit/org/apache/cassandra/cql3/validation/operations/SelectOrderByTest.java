@@ -63,7 +63,7 @@ public class SelectOrderByTest extends CQLTester
         });
     }
 
-    @Test
+        @Test
     public void testFunctionSelectionOrderSingleClustering() throws Throwable
     {
         createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");

@@ -75,6 +75,11 @@ public final class SchemaConstants
      */
     public static final int NAME_LENGTH = 48;
 
+    /**
+     * The length limit of an individual file name, see CASSANDRA-20389 for more detail.
+     * */
+    public static final int FS_LENGTH_LIMIT = 255;
+
     // 59adb24e-f3cd-3e02-97f0-5b395827453f
     public static final UUID emptyVersion;
 

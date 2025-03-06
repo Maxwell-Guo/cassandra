@@ -88,6 +88,7 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
 import static org.apache.cassandra.db.TypeSizes.sizeof;
 import static org.apache.cassandra.schema.IndexMetadata.isNameValid;
+import static org.apache.cassandra.schema.SchemaConstants.FS_LENGTH_LIMIT;
 
 @Unmetered
 public class TableMetadata implements SchemaElement
@@ -552,6 +553,9 @@ public class TableMetadata implements SchemaElement
         if (!isNameValid(name))
             except("Table name must not be empty, more than %s characters long, or contain non-alphanumeric-underscore characters (got \"%s\")", SchemaConstants.NAME_LENGTH, name);
 
+        if (tablePathTooLong())
+            except("The data dir's of table " + name + " path length is bigger than 255");
+
         params.validate();
 
         if (partitionKeyColumns.stream().anyMatch(c -> c.type.isCounter()))
@@ -589,6 +593,14 @@ public class TableMetadata implements SchemaElement
                 throw new InvalidRequestException(e.getMessage(), e);
             }
         }
+    }
+
+    private boolean tablePathTooLong()
+    {
+        String tablePathName = name + "-" + id.toHexString();
+        if (keyspace.length() <= FS_LENGTH_LIMIT && tablePathName.length() <= FS_LENGTH_LIMIT)
+            return false;
+        return true;
     }
 
     /**
