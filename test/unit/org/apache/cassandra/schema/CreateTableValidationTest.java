@@ -157,6 +157,13 @@ public class CreateTableValidationTest extends CQLTester
                         "Missing CLUSTERING ORDER for column ck1");
     }
 
+    @Test
+    public void testInvalidCompactionOptions()
+    {
+        expectedFailure(ConfigurationException.class, "CREATE TABLE %s (k int PRIMARY KEY, v int) WITH compaction = {'class': 'LeveledCompactionStrategy', 'fanout_size': '90', 'sstable_size_in_mb': '1089'}",
+                        "your maxSSTableSize must be absurdly high to compute");
+    }
+
     private void expectedFailure(String statement, String errorMsg)
     {
 
